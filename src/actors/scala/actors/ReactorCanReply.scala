@@ -9,6 +9,8 @@
 
 package scala.actors
 
+import scala.util.continuations._
+
 /**
  * Provides message send operations that
  * may result in a response from the receiver.
@@ -16,10 +18,10 @@ package scala.actors
  * @author Philipp Haller
  */
 private[actors] trait ReactorCanReply extends CanReply[Any, Any] {
-  _: ReplyReactor =>
-
+  _: InternalReplyReactor =>
+  
   type Future[+P] = scala.actors.Future[P]
-
+  
   def !?(msg: Any): Any =
     (this !! msg)()
 
@@ -39,10 +41,10 @@ private[actors] trait ReactorCanReply extends CanReply[Any, Any] {
     this.send(msg, out)
     res.get(msec)
   }
-
+  
   def !!(msg: Any): Future[Any] =
     this !! (msg, { case x => x })
-
+      
   def !![A](msg: Any, handler: PartialFunction[Any, A]): Future[A] = {
     val myself = Actor.rawSelf(this.scheduler)
     val ftch = new ReactChannel[A](myself)
@@ -74,14 +76,14 @@ private[actors] trait ReactorCanReply extends CanReply[Any, Any] {
       def apply() = {
         if (!isSet)
           fvalue = Some(res.get)
-
+        
         fvalueTyped
       }
       def respond(k: A => Unit): Unit =
         if (isSet) k(fvalueTyped)
-        else inputChannel.react {
+        else reset { inputChannel.react {
           case any => fvalue = Some(any); k(fvalueTyped)
-        }
+        } }
       def isSet =
         !fvalue.isEmpty
       def inputChannel = ftch

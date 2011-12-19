@@ -21,43 +21,50 @@ trait CanReply[-T, +R] {
   type Future[+P] <: () => P
 
   /**
-   * Sends `msg` to this $actor and awaits reply (synchronous).
+   * Sends <code>msg</code> to this $actor and
+   * awaits reply (synchronous).
    *
    * @param  msg the message to be sent
    * @return     the reply
    */
+  @deprecated("use ? on actorRef")
   def !?(msg: T): R
 
   /**
-   * Sends `msg` to this $actor and awaits reply (synchronous) within
-   * `msec` milliseconds.
+   * Sends <code>msg</code> to this $actor and
+   * awaits reply (synchronous) within <code>msec</code>
+   * milliseconds.
    *
    * @param  msec the time span before timeout
    * @param  msg  the message to be sent
-   * @return      `None` in case of timeout, otherwise
-   *              `Some(x)` where `x` is the reply
+   * @return      <code>None</code> in case of timeout, otherwise
+   *              <code>Some(x)</code> where <code>x</code> is the reply
    */
+  @deprecated("use ? on actorRef") // TODO(VJ) what to do (there is no way to do it with futures)
   def !?(msec: Long, msg: T): Option[R]
 
   /**
-   * Sends `msg` to this $actor and immediately returns a future representing
-   * the reply value.
+   * Sends <code>msg</code> to this $actor and
+   * immediately returns a future representing the reply value.
    *
    * @param  msg the message to be sent
    * @return     the future
    */
+  @deprecated("use ? on actorRef")
   def !!(msg: T): Future[R]
 
   /**
-   * Sends `msg` to this $actor and immediately returns a future representing
-   * the reply value. The reply is post-processed using the partial function
-   * `handler`. This also allows to recover a more precise type for the reply
-   * value.
+   * Sends <code>msg</code> to this $actor and
+   * immediately returns a future representing the reply value.
+   * The reply is post-processed using the partial function
+   * <code>handler</code>. This also allows to recover a more
+   * precise type for the reply value.
    *
    * @param      msg the message to be sent
    * @param  handler the function to be applied to the response
    * @return         the future
    */
+  @deprecated("use ? on actorRef")
   def !![P](msg: T, handler: PartialFunction[R, P]): Future[P]
 
 }

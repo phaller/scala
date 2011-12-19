@@ -6,16 +6,17 @@
 **                          |/                                          **
 \*                                                                      */
 
+
 package scala.actors
 package scheduler
 
-import scala.collection.mutable
+import scala.collection.mutable.HashMap
 
 private[scheduler] trait TerminationMonitor {
   _: IScheduler =>
 
   protected var activeActors = 0
-  protected val terminationHandlers = new mutable.HashMap[TrackedReactor, () => Unit]
+  protected val terminationHandlers = new HashMap[TrackedReactor, () => Unit]
   private var started = false
 
   /** newActor is invoked whenever a new actor is started. */
@@ -27,7 +28,7 @@ private[scheduler] trait TerminationMonitor {
 
   /** Registers a closure to be executed when the specified
    *  actor terminates.
-   *
+   * 
    *  @param  a  the actor
    *  @param  f  the closure to be registered
    */
@@ -63,6 +64,10 @@ private[scheduler] trait TerminationMonitor {
   private[actors] def allActorsTerminated: Boolean = synchronized {
     started && activeActors <= 0
   }
+  
+  /** Deprecated non-actor-private version */
+  @deprecated("this method is going to be removed in a future release", "2.7.7")
+  def allTerminated: Boolean = allActorsTerminated
 
   /** Checks for actors that have become garbage. */
   protected def gc() {}

@@ -10,6 +10,7 @@
 package scala.actors
 
 import scala.concurrent.SyncVar
+import scala.util.continuations._
 
 /**
  * Provides message send operations that
@@ -18,7 +19,7 @@ import scala.concurrent.SyncVar
  * @author Philipp Haller
  */
 private[actors] trait ActorCanReply extends ReactorCanReply {
-  this: AbstractActor with ReplyReactor =>
+  this: AbstractActor with InternalReplyReactor =>
 
   override def !?(msg: Any): Any = {
     val replyCh = new Channel[Any](Actor.self(scheduler))
@@ -51,7 +52,7 @@ private[actors] trait ActorCanReply extends ReactorCanReply {
       })
       ftch.react {
         case any => res.set(any)
-      }
+      }      
     }
     val a = new FutureActor[A](fun, c)
     a.start()

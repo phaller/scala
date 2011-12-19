@@ -6,28 +6,32 @@
 **                          |/                                          **
 \*                                                                      */
 
+
 package scala.actors
 
 import scala.concurrent.SyncVar
+import scala.util.continuations._
 
 /**
- * Used to pattern match on values that were sent to some channel `Chan,,n,,`
- * by the current actor `self`.
- *
+ *  Used to pattern match on values that were sent
+ *  to some channel <code>Chan<sub>n</sub></code> by the current
+ *  actor <code>self</code>.
+ * 
  *  @example {{{
  *  receive {
  *    case Chan1 ! msg1 => ...
  *    case Chan2 ! msg2 => ...
  *  }
  *  }}}
- *
+ * 
  * @author Philipp Haller
  */
 case class ! [a](ch: Channel[a], msg: a)
 
 /**
- * Provides a means for typed communication among actors. Only the
- * actor creating an instance of a `Channel` may receive from it.
+ * Provides a means for typed communication among
+ * actors. Only the actor creating an instance of a
+ * <code>Channel</code> may receive from it.
  *
  * @author Philipp Haller
  *
@@ -71,14 +75,14 @@ class Channel[Msg](val receiver: Actor) extends InputChannel[Msg] with OutputCha
     }
   }
 
-  def react(f: PartialFunction[Msg, Unit]): Nothing = {
+  def react(f: PartialFunction[Msg, Unit]): /*Nothing*/Unit @suspendable = {
     val C = this.asInstanceOf[Channel[Any]]
     receiver.react {
       case C ! msg if (f.isDefinedAt(msg.asInstanceOf[Msg])) => f(msg.asInstanceOf[Msg])
     }
   }
 
-  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Nothing = {
+  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Unit @suspendable = {
     val C = this.asInstanceOf[Channel[Any]]
     receiver.reactWithin(msec) {
       case C ! msg if (f.isDefinedAt(msg)) => f(msg)
@@ -116,10 +120,10 @@ class Channel[Msg](val receiver: Actor) extends InputChannel[Msg] with OutputCha
           ftch.forward(handler(msg))
         def receiver =
           ftch.receiver
-      })
-      ftch.react {
-        case any => res.set(any)
-      }
+      })      
+        ftch.react {
+          case any => res.set(any)
+        }      
     }
     val a = new FutureActor[A](fun, c)
     a.start()

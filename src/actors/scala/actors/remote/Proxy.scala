@@ -10,14 +10,15 @@
 package scala.actors
 package remote
 
-import scala.collection.mutable
+import scala.collection.mutable.HashMap
+import scala.util.continuations._
 
 /**
  * @author Philipp Haller
  */
 private[remote] class Proxy(node: Node, name: Symbol, @transient var kernel: NetKernel) extends AbstractActor with Serializable {
   import java.io.{IOException, ObjectOutputStream, ObjectInputStream}
-
+  
   type Future[+P] = scala.actors.Future[P]
 
   @transient
@@ -83,11 +84,7 @@ private[remote] class Proxy(node: Node, name: Symbol, @transient var kernel: Net
     name+"@"+node
 }
 
-// Proxy is private[remote], but these classes are public and use it in a public
-// method signature.  That makes the only method they have non-overriddable.
-// So I made them final, which seems appropriate anyway.
-
-final class LinkToFun extends Function2[AbstractActor, Proxy, Unit] with Serializable {
+class LinkToFun extends Function2[AbstractActor, Proxy, Unit] with Serializable {
   def apply(target: AbstractActor, creator: Proxy) {
     target.linkTo(creator)
   }
@@ -95,7 +92,7 @@ final class LinkToFun extends Function2[AbstractActor, Proxy, Unit] with Seriali
     "<LinkToFun>"
 }
 
-final class UnlinkFromFun extends Function2[AbstractActor, Proxy, Unit] with Serializable {
+class UnlinkFromFun extends Function2[AbstractActor, Proxy, Unit] with Serializable {
   def apply(target: AbstractActor, creator: Proxy) {
     target.unlinkFrom(creator)
   }
@@ -103,7 +100,7 @@ final class UnlinkFromFun extends Function2[AbstractActor, Proxy, Unit] with Ser
     "<UnlinkFromFun>"
 }
 
-final class ExitFun(reason: AnyRef) extends Function2[AbstractActor, Proxy, Unit] with Serializable {
+class ExitFun(reason: AnyRef) extends Function2[AbstractActor, Proxy, Unit] with Serializable {
   def apply(target: AbstractActor, creator: Proxy) {
     target.exit(creator, reason)
   }
@@ -117,11 +114,10 @@ private[remote] case class Apply0(rfun: Function2[AbstractActor, Proxy, Unit])
  * @author Philipp Haller
  */
 private[remote] class DelegateActor(creator: Proxy, node: Node, name: Symbol, kernel: NetKernel) extends Actor {
-  var channelMap = new mutable.HashMap[Symbol, OutputChannel[Any]]
-  var sessionMap = new mutable.HashMap[OutputChannel[Any], Symbol]
+  var channelMap = new HashMap[Symbol, OutputChannel[Any]]
+  var sessionMap = new HashMap[OutputChannel[Any], Symbol]
 
-  def act() {
-    Actor.loop {
+  def repeat(): Unit @suspendable = {
       react {
         case cmd@Apply0(rfun) =>
           kernel.remoteApply(node, name, sender, rfun)
@@ -184,7 +180,12 @@ private[remote] class DelegateActor(creator: Proxy, node: Node, name: Symbol, ke
             kernel.forward(sender, node, name, msg, 'nosession)
           }
       }
-    }
+
+    repeat()
+  }
+
+  def act() {
+    reset { repeat() }
   }
 
 }

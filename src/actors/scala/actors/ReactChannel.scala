@@ -9,10 +9,12 @@
 
 package scala.actors
 
+import scala.util.continuations._
+
 /**
  * @author Philipp Haller
  */
-private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputChannel[Msg] {
+private[actors] class ReactChannel[Msg](receiver: InternalReplyReactor) extends InputChannel[Msg] {
 
   private case class SendToReactor(channel: ReactChannel[Msg], msg: Msg)
 
@@ -26,8 +28,8 @@ private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputCha
   }
 
   /**
-   * Sends a message to this `ReactChannel` (asynchronous) supplying
-   * explicit reply destination.
+   * Sends a message to this <code>ReactChannel</code>
+   * (asynchronous) supplying explicit reply destination.
    *
    * @param  msg     the message to send
    * @param  replyTo the reply destination
@@ -37,22 +39,22 @@ private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputCha
   }
 
   /**
-   * Forwards `msg` to `'''this'''` keeping the last sender as sender
-   * instead of `self`.
+   * Forwards <code>msg</code> to <code>this</code> keeping the
+   * last sender as sender instead of <code>self</code>.
    */
   def forward(msg: Msg) {
     receiver forward SendToReactor(this, msg)
   }
 
   /**
-   * Receives a message from this `ReactChannel`.
-   *
-   * This method ''never'' returns. Therefore, the rest of the computation
+   * Receives a message from this <code>ReactChannel</code>.
+   * <p>
+   * This method never returns. Therefore, the rest of the computation
    * has to be contained in the actions of the partial function.
    *
    * @param  f    a partial function with message patterns and actions
    */
-  def react(f: PartialFunction[Msg, Unit]): Nothing = {
+  def react(f: PartialFunction[Msg, Unit]): /*Nothing*/Unit @suspendable = {
     val C = this
     receiver.react {
       case SendToReactor(C, msg) if (f.isDefinedAt(msg.asInstanceOf[Msg])) =>
@@ -61,15 +63,16 @@ private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputCha
   }
 
   /**
-   * Receives a message from this `ReactChannel` within a certain time span.
-   *
-   * This method ''never'' returns. Therefore, the rest of the computation
+   * Receives a message from this <code>ReactChannel</code> within
+   * a certain time span.
+   * <p>
+   * This method never returns. Therefore, the rest of the computation
    * has to be contained in the actions of the partial function.
    *
    * @param  msec the time span before timeout
    * @param  f    a partial function with message patterns and actions
    */
-  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Nothing = {
+  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Unit @suspendable = {
     val C = this
     val recvActor = receiver.asInstanceOf[Actor]
     recvActor.reactWithin(msec) {
@@ -80,7 +83,7 @@ private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputCha
   }
 
   /**
-   * Receives a message from this `ReactChannel`.
+   * Receives a message from this <code>ReactChannel</code>.
    *
    * @param  f    a partial function with message patterns and actions
    * @return      result of processing the received value
@@ -95,7 +98,8 @@ private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputCha
   }
 
   /**
-   * Receives a message from this `ReactChannel` within a certain time span.
+   * Receives a message from this <code>ReactChannel</code> within a certain
+   * time span.
    *
    * @param  msec the time span before timeout
    * @param  f    a partial function with message patterns and actions
@@ -112,7 +116,7 @@ private[actors] class ReactChannel[Msg](receiver: ReplyReactor) extends InputCha
   }
 
   /**
-   * Receives the next message from this `ReactChannel`.
+   * Receives the next message from this <code>ReactChannel</code>.
    */
   def ? : Msg = receive {
     case x => x

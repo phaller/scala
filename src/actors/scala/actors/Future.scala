@@ -11,6 +11,7 @@ package scala.actors
 
 import scala.actors.scheduler.DaemonScheduler
 import scala.concurrent.SyncVar
+import scala.util.continuations._
 
 /** A function of arity 0, returing a value of type `T` that,
  *  when applied, blocks the current actor (`Actor.self`)
@@ -26,6 +27,14 @@ abstract class Future[+T] extends Responder[T] with Function0[T] {
   @volatile
   private[actors] var fvalue: Option[Any] = None
   private[actors] def fvalueTyped = fvalue.get.asInstanceOf[T]
+  
+  @deprecated("this member is going to be removed in a future release", "2.8.0")
+  def ch: InputChannel[Any] = inputChannel
+
+  @deprecated("this member is going to be removed in a future release", "2.8.0")
+  protected def value: Option[Any] = fvalue
+  @deprecated("this member is going to be removed in a future release", "2.8.0")
+  protected def value_=(x: Option[Any]) { fvalue = x }
 
   /** Tests whether the future's result is available.
    *
@@ -44,7 +53,7 @@ abstract class Future[+T] extends Responder[T] with Function0[T] {
 
 private case object Eval
 
-private class FutureActor[T](fun: SyncVar[T] => Unit, channel: Channel[T]) extends Future[T] with DaemonActor {
+private class FutureActor[T](fun: SyncVar[T] => Unit @suspendable, channel: Channel[T]) extends Future[T] with DaemonActor {
 
   var enableChannel = false // guarded by this
 
@@ -61,8 +70,10 @@ private class FutureActor[T](fun: SyncVar[T] => Unit, channel: Channel[T]) exten
     if (isSet) k(fvalueTyped)
     else {
       val ft = this !! Eval
-      ft.inputChannel.react {
-        case _ => k(fvalueTyped)
+      reset {
+        ft.inputChannel.react {
+          case _ => k(fvalueTyped)
+        }
       }
     }
   }
@@ -78,27 +89,26 @@ private class FutureActor[T](fun: SyncVar[T] => Unit, channel: Channel[T]) exten
     channel
   }
 
-  def act() {
-    val res = new SyncVar[T]
+  def looping(): Unit @suspendable = {
+    react {
+      case Eval => reply()
+    }
+    looping()
+  }
 
-    {
+  def act() {    
+    reset {
+      val res = new SyncVar[T]
       fun(res)
-    } andThen {
 
       synchronized {
         val v = res.get
-        fvalue =  Some(v)
+        fvalue = Some(v)
         if (enableChannel)
           channel ! v
       }
 
-      loop {
-        react {
-          // This is calling ReplyReactor#reply(msg: Any).
-          // Was: reply().  Now: reply(()).
-          case Eval => reply(())
-        }
-      }
+      looping()
     }
   }
 }
@@ -161,11 +171,11 @@ object Futures {
    *  options. The result of a future that resolved during the
    *  time span is its value wrapped in `Some`. The result of a
    *  future that did not resolve during the time span is `None`.
-   *
+   *  
    *  Note that some of the futures might already have been awaited,
    *  in which case their value is returned wrapped in `Some`.
    *  Passing a timeout of 0 causes `awaitAll` to return immediately.
-   *
+   *  
    *  @param  timeout the time span in ms after which waiting is
    *                  aborted
    *  @param  fts     the futures to be awaited
@@ -200,8 +210,8 @@ object Futures {
     Actor.timer.schedule(timerTask, timeout)
 
     def awaitWith(partFuns: Seq[PartialFunction[Any, Pair[Int, Any]]]) {
-      val reaction: PartialFunction[Any, Unit] = new scala.runtime.AbstractPartialFunction[Any, Unit] {
-        def _isDefinedAt(msg: Any) = msg match {
+      val reaction: PartialFunction[Any, Unit] = new PartialFunction[Any, Unit] {
+        def isDefinedAt(msg: Any) = msg match {
           case TIMEOUT => true
           case _ => partFuns exists (_ isDefinedAt msg)
         }

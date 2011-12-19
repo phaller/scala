@@ -13,13 +13,13 @@ package scala.actors
 /**
  *  @author Philipp Haller
  */
-private[actors] class ReplyReactorTask(reactor: ReplyReactor,
+private[actors] class ReplyReactorTask(reactor: InternalReplyReactor,
                                        fun: () => Unit,
                                        handler: PartialFunction[Any, Any],
                                        msg: Any)
   extends ReactorTask(reactor, fun, handler, msg) {
 
-  var saved: ReplyReactor = _
+  var saved: InternalReplyReactor = _
 
   protected override def beginExecution() {
     saved = Actor.tl.get

@@ -6,6 +6,7 @@
 **                          |/                                          **
 \*                                                                      */
 
+
 package scala.actors
 
 /**
@@ -18,14 +19,14 @@ package scala.actors
 trait OutputChannel[-Msg] {
 
   /**
-   * Sends `msg` to this $actor (asynchronous).
+   * Sends <code>msg</code> to this $actor (asynchronous).
    *
    * @param  msg      the message to send
    */
   def !(msg: Msg): Unit
 
   /**
-   * Sends `msg` to this $actor (asynchronous) supplying
+   * Sends <code>msg</code> to this $actor (asynchronous) supplying
    * explicit reply destination.
    *
    * @param  msg      the message to send
@@ -34,14 +35,14 @@ trait OutputChannel[-Msg] {
   def send(msg: Msg, replyTo: OutputChannel[Any]): Unit
 
   /**
-   * Forwards `msg` to this $actor (asynchronous).
+   * Forwards <code>msg</code> to this $actor (asynchronous).
    *
    * @param  msg      the message to forward
    */
   def forward(msg: Msg): Unit
 
   /**
-   * Returns the `Actor` that is receiving from this $actor.
+   * Returns the <code>Actor</code> that is receiving from this $actor.
    */
   def receiver: Actor
 }

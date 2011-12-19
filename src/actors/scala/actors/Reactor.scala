@@ -11,6 +11,7 @@ package scala.actors
 
 import scala.actors.scheduler.{DelegatingScheduler, ExecutorScheduler,
                                ForkJoinScheduler, ThreadPoolConfig}
+import scala.util.continuations._
 import java.util.concurrent.{ThreadPoolExecutor, TimeUnit, LinkedBlockingQueue}
 
 private[actors] object Reactor {
@@ -38,10 +39,11 @@ private[actors] object Reactor {
     }
   }
 
-  val waitingForNone: PartialFunction[Any, Unit] = new scala.runtime.AbstractPartialFunction[Any, Unit] {
-    def _isDefinedAt(x: Any) = false
+  val waitingForNone = new PartialFunction[Any, Unit] {
+    def isDefinedAt(x: Any) = false
     def apply(x: Any) {}
   }
+
 }
 
 /**
@@ -192,15 +194,14 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
   /**
    * Receives a message from this $actor's mailbox.
    *
-   * This method never returns. Therefore, the rest of the computation
-   * has to be contained in the actions of the partial function.
-   *
    * @param  handler  a partial function with message patterns and actions
    */
-  protected def react(handler: PartialFunction[Msg, Unit]): Nothing = {
-    synchronized { drainSendBuffer(mailbox) }
-    searchMailbox(mailbox, handler, false)
-    throw Actor.suspendException
+  protected def react(handler: PartialFunction[Msg, Unit]): /*Nothing*/Unit @suspendable = {
+    shift { (k: Unit => Unit) => {
+      synchronized { drainSendBuffer(mailbox) }
+      searchMailbox(mailbox, handler /*andThen k*/, false)
+      throw Actor.suspendException
+    } }
   }
 
   /* This method is guaranteed to be executed from inside
@@ -214,11 +215,16 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
     scheduler executeFromActor makeReaction(null, handler, msg)
   }
 
+  private[actors] def preAct() = {}
+  
   // guarded by this
   private[actors] def dostart() {
     _state = Actor.State.Runnable
     scheduler newActor this
-    scheduler execute makeReaction(() => act(), null, null)
+    scheduler execute makeReaction(() => {
+      preAct()
+      act()
+    }, null, null)
   }
 
   /**
@@ -243,7 +249,7 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
   }
 
   /** Returns the execution state of this $actor.
-   *
+   *  
    *  @return the execution state
    */
   def getState: Actor.State.Value = synchronized {

@@ -10,10 +10,10 @@
 
 package scala.actors
 
-/**
+/** 
  *  @author Philipp Haller
  */
-private[actors] class ActorTask(actor: Actor,
+private[actors] class ActorTask(actor: InternalActor,
                                 fun: () => Unit,
                                 handler: PartialFunction[Any, Any],
                                 msg: Any)
@@ -28,7 +28,7 @@ private[actors] class ActorTask(actor: Actor,
   }
 
   protected override def terminateExecution(e: Throwable) {
-    val senderInfo = try { Some(actor.sender) } catch {
+    val senderInfo = try { Some(actor.internalSender) } catch {
       case _: Exception => None
     }
     val uncaught = UncaughtException(actor,
@@ -38,13 +38,16 @@ private[actors] class ActorTask(actor: Actor,
                                      e)
 
     val todo = actor.synchronized {
-      if (!actor.links.isEmpty)
+      val res = if (!actor.links.isEmpty)
         actor.exitLinked(uncaught)
       else {
         super.terminateExecution(e)
         () => {}
       }
+      actor.internalPostStop
+      res
     }
+    
     todo()
   }
 
