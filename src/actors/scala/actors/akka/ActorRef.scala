@@ -41,7 +41,7 @@ trait ActorRef {
    *
    * @return the same ActorRef that is provided to it, to allow for cleaner invocations
    */
-  def startsWatching(subject: ActorRef): ActorRef //TODO FIXME REMOVE THIS
+  def startsWatching(subject: ActorRef): ActorRef = throw new UnsupportedOperationException//TODO FIXME REMOVE THIS
 
   /**
    * Deregisters this actor from being a death monitor of the provided ActorRef
@@ -50,7 +50,7 @@ trait ActorRef {
    *
    * @return the same ActorRef that is provided to it, to allow for cleaner invocations
    */
-  def stopsWatching(subject: ActorRef): ActorRef //TODO FIXME REMOVE THIS
+  def stopsWatching(subject: ActorRef): ActorRef = throw new UnsupportedOperationException//TODO FIXME REMOVE THIS
   
 }
 

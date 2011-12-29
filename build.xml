@@ -466,20 +466,17 @@ QUICK BUILD (QUICK)
   
   <target name="quick.start" depends="locker.done"/>
 
-  <target name="quick.pre-lib" depends="quick.start">
-    <uptodate property="quick.lib.available" targetfile="${build-quick.dir}/library.complete">
-      <srcfiles dir="${src.dir}">
-        <include name="library/**"/>
-        <include name="dbc/**"/>
-        <include name="actors/**"/>
-        <include name="continuations/**"/>
-        <include name="swing/**"/>
-      </srcfiles>
-    </uptodate>
+  <target name="quick.pre-lib-partial" depends="quick.start">
+	<uptodate property="quick.lib-partial.available" targetfile="${build-quick.dir}/library-partial.complete">
+	  <srcfiles dir="${src.dir}">
+	    <include name="library/**"/>
+	    <include name="dbc/**"/>
+	  </srcfiles>
+	</uptodate>
   </target>
-
-  <target name="quick.lib" depends="quick.pre-lib" unless="quick.lib.available">
-    <stopwatch name="quick.lib.timer"/>
+	
+  <target name="quick.lib-partial" depends="quick.pre-lib-partial" unless="quick.lib-partial.available">
+    <stopwatch name="quick.lib-partial.timer"/>
     <mkdir dir="${build-quick.dir}/classes/library"/>
     <javac
       srcdir="${src.dir}/library"
@@ -488,15 +485,8 @@ QUICK BUILD (QUICK)
       includes="**/*.java"
       target="1.5" source="1.5">
       <compilerarg line="${javac.args}"/> 
-    </javac>
-    <javac
-      srcdir="${src.dir}/actors"
-      destdir="${build-quick.dir}/classes/library"
-      classpath="${build-quick.dir}/classes/library"
-      includes="**/*.java"
-      target="1.5" source="1.5">
-      <compilerarg line="${javac.args}"/>
-    </javac>
+    </javac>    
+  	
     <scalacfork
       destdir="${build-quick.dir}/classes/library"
       compilerpathref="locker.classpath"
@@ -507,15 +497,7 @@ QUICK BUILD (QUICK)
       <include name="**/*.scala"/>
       <compilationpath refid="quick.compilation.path"/>
     </scalacfork>
-    <scalacfork
-      destdir="${build-quick.dir}/classes/library"
-      compilerpathref="locker.classpath"
-      params="${scalac.args.quick}"
-      srcdir="${src.dir}/actors"
-      jvmargs="${scalacfork.jvmargs}">
-      <include name="**/*.scala"/>
-      <compilationpath refid="quick.compilation.path"/>
-    </scalacfork>
+
     <scalacfork
       destdir="${build-quick.dir}/classes/library"
       compilerpathref="locker.classpath"
@@ -525,32 +507,72 @@ QUICK BUILD (QUICK)
       <include name="**/*.scala"/>
       <compilationpath refid="quick.compilation.path"/>
     </scalacfork>
-    <scalacfork
-      destdir="${build-quick.dir}/classes/library"
-      compilerpathref="locker.classpath"
-      params="${scalac.args.quick}"
-      srcdir="${src.dir}/swing"
-      jvmargs="${scalacfork.jvmargs}">
-      <include name="**/*.scala"/>
-      <compilationpath refid="quick.compilation.path"/>
-    </scalacfork>
-    <propertyfile file="${build-quick.dir}/classes/library/library.properties">
-      <entry key="version.number" value="${version.number}"/>
-      <entry key="copyright.string" value="${copyright.string}"/>
-    </propertyfile>
-    <copy todir="${build-quick.dir}/classes/library">
-      <fileset dir="${src.dir}/library">
-        <include name="**/*.tmpl"/>
-        <include name="**/*.xml"/>
-        <include name="**/*.js"/>
-        <include name="**/*.css"/>
-      </fileset>
-    </copy>
-    <touch file="${build-quick.dir}/library.complete" verbose="no"/>
-    <stopwatch name="quick.lib.timer" action="total"/>
+
+    <touch file="${build-quick.dir}/library-partial.complete" verbose="no"/>
+    <stopwatch name="quick.lib-partial.timer" action="total"/>
   </target>
   
-  <target name="quick.newlibs" depends="quick.lib" if="libs.outdated">
+	<target name="quick.pre-lib" depends="quick.plugins">
+	    <uptodate property="quick.lib.available" targetfile="${build-quick.dir}/library.complete">
+	      <srcfiles dir="${src.dir}">
+	        <include name="library/**"/>
+	        <include name="dbc/**"/>
+	        <include name="actors/**"/>
+	        <include name="continuations/**"/>
+	        <include name="swing/**"/>
+	      </srcfiles>
+	    </uptodate>
+	  </target>
+	
+  <target name="quick.lib" depends="quick.pre-lib" unless="quick.lib.available">
+	<stopwatch name="quick.lib.timer"/>
+
+	<javac
+	  srcdir="${src.dir}/actors"      
+	  destdir="${build-quick.dir}/classes/library"
+	  classpath="${build-quick.dir}/classes/library"
+	  includes="**/*.java"
+	  target="1.5" source="1.5">
+	  <compilerarg line="${javac.args}"/>
+	</javac>
+	
+	<scalacfork
+	  destdir="${build-quick.dir}/classes/library"
+	  compilerpathref="locker.classpath"
+	  params="${scalac.args.quick} -Xpluginsdir ${build-quick.dir}/misc/scala-devel/plugins -Xplugin-require:continuations -P:continuations:enable"
+	  srcdir="${src.dir}/actors"
+	  jvmargs="${scalacfork.jvmargs}">
+	  <include name="**/*.scala"/>
+	  <compilationpath refid="quick.compilation.path"/>
+	</scalacfork>
+	
+	<scalacfork
+	  destdir="${build-quick.dir}/classes/library"
+	  compilerpathref="locker.classpath"
+	  params="${scalac.args.quick}"
+	  srcdir="${src.dir}/swing"
+	  jvmargs="${scalacfork.jvmargs}">
+	  <include name="**/*.scala"/>
+	  <compilationpath refid="quick.compilation.path"/>
+	</scalacfork>
+	
+	<propertyfile file="${build-quick.dir}/classes/library/library.properties">
+	  <entry key="version.number" value="${version.number}"/>
+	  <entry key="copyright.string" value="${copyright.string}"/>
+	</propertyfile>
+	<copy todir="${build-quick.dir}/classes/library">
+	  <fileset dir="${src.dir}/library">
+	    <include name="**/*.tmpl"/>
+	    <include name="**/*.xml"/>
+	    <include name="**/*.js"/>
+	     <include name="**/*.css"/>
+	  </fileset>
+	</copy>
+	<touch file="${build-quick.dir}/library.complete" verbose="no"/>
+	<stopwatch name="quick.lib.timer" action="total"/>
+  </target>  	
+	
+  <target name="quick.newlibs" depends="quick.lib-partial" if="libs.outdated">
     <antcall target="libs.done" inheritRefs="true"/>
     <property name="fjbg.jar" value="${build-libs.dir}/fjbg.jar"/>
     <property name="msil.jar" value="${build-libs.dir}/msil.jar"/>
@@ -662,7 +684,7 @@ QUICK BUILD (QUICK)
     <stopwatch name="quick.plugins.timer" action="total"/>
   </target>
   
-  <target name="quick.scalacheck" depends="quick.plugins">
+  <target name="quick.scalacheck" depends="quick.lib">
     <mkdir dir="${build-quick.dir}/classes/scalacheck"/>
     <scalacfork
       destdir="${build-quick.dir}/classes/scalacheck"
@@ -839,6 +861,7 @@ PACKED QUICK BUILD (PACK)
       <fileset dir="${build-quick.dir}/classes/library">
         <exclude name="scala/dbc/**"/>
         <exclude name="scala/swing/**"/>
+        <exclude name="scala/actors/**"/>
       </fileset>
       <zipfileset dirmode="755" filemode="644" src="${forkjoin.jar}"/>
     </jar>
@@ -853,6 +876,11 @@ PACKED QUICK BUILD (PACK)
       </fileset>
       <fileset dir="${src.dir}/swing">
         <include name="scala/swing/test/images/**"/>
+      </fileset>
+    </jar>
+    <jar destfile="${build-pack.dir}/lib/scala-actors.jar">
+      <fileset dir="${build-quick.dir}/classes/library">
+        <include name="scala/actors/**"/>
       </fileset>
     </jar>
   </target>
@@ -984,6 +1012,7 @@ PACKED QUICK BUILD (PACK)
       <pathelement location="${build-pack.dir}/lib/scala-compiler.jar"/>
       <pathelement location="${build-pack.dir}/lib/scala-partest.jar"/>
       <pathelement location="${build-pack.dir}/lib/scalap.jar"/>
+      <pathelement location="${build-pack.dir}/lib/scala-actors.jar"/>
       <pathelement location="${ant.jar}"/>
       <pathelement location="${jline.jar}"/>
       <path refid="lib.extra"/>
@@ -1709,7 +1738,6 @@ DISTRIBUTION
     <mkdir dir="${dist.dir}/src"/>
     <jar destfile="${dist.dir}/src/scala-library-src.jar">
       <fileset dir="${src.dir}/library"/>
-      <fileset dir="${src.dir}/actors"/>
       <fileset dir="${src.dir}/continuations/library"/>
     </jar>
     <jar destfile="${dist.dir}/src/scala-dbc-src.jar">
@@ -1718,6 +1746,9 @@ DISTRIBUTION
     <jar destfile="${dist.dir}/src/scala-swing-src.jar">
       <fileset dir="${src.dir}/swing"/>
     </jar>
+  	<jar destfile="${dist.dir}/src/scala-actors-src.jar">
+  	  <fileset dir="${src.dir}/actors"/>
+  	</jar>
     <jar destfile="${dist.dir}/src/scala-compiler-src.jar">
       <fileset dir="${src.dir}/compiler"/>
     </jar>

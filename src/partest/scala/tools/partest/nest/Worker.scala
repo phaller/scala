@@ -24,6 +24,7 @@ import scala.tools.scalap.scalax.rules.scalasig.ByteCode
 import scala.collection.{ mutable, immutable }
 import scala.tools.nsc.interactive.{ BuildManager, RefinedBuildManager }
 import scala.sys.process._
+import scala.util.continuations._
 
 case class RunTests(kind: String, files: List[File])
 case class Results(results: Map[String, Int])
@@ -216,14 +217,16 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
   )
 
   def act() {
-    react {
-      case RunTests(testKind, files) =>
-        val master = sender
-        kind = testKind
-        runTests(files) { results =>
-          master ! Results(results.toMap)
-          resetAll()
-        }
+    reset {
+      react {
+        case RunTests(testKind, files) =>
+          val master = sender
+          kind = testKind
+          runTests(files) { results =>
+            master ! Results(results.toMap)
+            resetAll()
+          }
+      }
     }
   }
 
@@ -1035,27 +1038,26 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
           parent ! Result(testFile, context)
         }
       }
+      reset {
+        react {
+          case Timeout(file) =>
+            updateStatus(file.getAbsolutePath, TestState.Timeout)
+            val swr = new StringWriter
+            val wr = new PrintWriter(swr, true)
+            printInfoStart(file, wr)
+            reportResult(
+              TestState.Timeout,
+              null,
+              Some((swr, wr)))
 
-      react {
-        case Timeout(file) =>
-          updateStatus(file.getAbsolutePath, TestState.Timeout)
-          val swr = new StringWriter
-          val wr = new PrintWriter(swr, true)
-          printInfoStart(file, wr)
-          reportResult(
-            TestState.Timeout,
-            null,
-            Some((swr, wr))
-          )
-
-        case Result(file, logs) =>
-          val state = if (succeeded) TestState.Ok else TestState.Fail
-          updateStatus(file.getAbsolutePath, state)
-          reportResult(
-            state,
-            logs.file,
-            logs.writers
-          )
+          case Result(file, logs) =>
+            val state = if (succeeded) TestState.Ok else TestState.Fail
+            updateStatus(file.getAbsolutePath, state)
+            reportResult(
+              state,
+              logs.file,
+              logs.writers)
+        }
       }
     }
   }

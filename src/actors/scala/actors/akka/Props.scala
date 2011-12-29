@@ -3,6 +3,7 @@
  */
 package scala.actors
 import collection.immutable.Stack
+import scala.util.{Duration, Timeout}
 
 /**
  * ActorRef configuration object, this is threadsafe and fully sharable
