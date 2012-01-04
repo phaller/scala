@@ -48,10 +48,10 @@ class ReflectiveRunner {
         new ConsoleFileManager
 
     import fileManager.
-      { latestCompFile, latestLibFile, latestPartestFile, latestFjbgFile, latestScalapFile }
+      { latestCompFile, latestLibFile, latestPartestFile, latestFjbgFile, latestScalapFile, latestActorsFile }
     val files =
-      Array(latestCompFile, latestLibFile, latestPartestFile, latestFjbgFile, latestScalapFile) map (x => io.File(x))
-
+      Array(latestCompFile, latestLibFile, latestPartestFile, latestFjbgFile, latestScalapFile, latestActorsFile) map (x => io.File(x))
+        
     val sepUrls   = files map (_.toURL)
     val sepLoader = new URLClassLoader(sepUrls, null)
 
@@ -63,7 +63,7 @@ class ReflectiveRunner {
       case _        => files.toList map (_.path)
     }
     val newClasspath = ClassPath.join(paths: _*)
-
+    
     setProp("java.class.path", newClasspath)
     setProp("scala.home", "")
 

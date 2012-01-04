@@ -216,9 +216,9 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
     msg + "\n  scalac -help  gives more information"
   )
 
-  def act() {
-    reset {
-      react {
+  def act() {            
+//    reset {      
+      receive { // react {
         case RunTests(testKind, files) =>
           val master = sender
           kind = testKind
@@ -227,7 +227,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
             resetAll()
           }
       }
-    }
+//    }
   }
 
   private def printInfoStart(file: File, printer: PrintWriter) {
@@ -1038,8 +1038,8 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
           parent ! Result(testFile, context)
         }
       }
-      reset {
-        react {
+//      reset {
+        receive {
           case Timeout(file) =>
             updateStatus(file.getAbsolutePath, TestState.Timeout)
             val swr = new StringWriter
@@ -1058,7 +1058,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
               logs.file,
               logs.writers)
         }
-      }
+//      }
     }
   }
 
