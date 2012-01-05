@@ -753,11 +753,13 @@ QUICK BUILD (QUICK)
     </javac>
     <scalacfork
       destdir="${build-quick.dir}/classes/partest"
-      compilerpathref="quick.classpath"
-      params="${scalac.args.quick}"
-      srcdir="${src.dir}/partest"
+      compilerpathref="quick.classpath"    
+      params="${scalac.args.quick} -Xplugin-require:continuations"
+      srcdir="${src.dir}/partest"    	
       jvmargs="${scalacfork.jvmargs}">
       <include name="**/*.scala"/>
+      <compilerarg value="-Xpluginsdir"/>
+      <compilerarg file="${build-quick.dir}/misc/scala-devel/plugins"/>
       <compilationpath>
         <pathelement location="${build-quick.dir}/classes/library"/>
         <pathelement location="${build-quick.dir}/classes/compiler"/>
@@ -766,7 +768,7 @@ QUICK BUILD (QUICK)
         <pathelement location="${ant.jar}"/>
         <pathelement location="${lib.dir}/forkjoin.jar"/>
         <pathelement location="${scalacheck.jar}"/>
-      </compilationpath>
+      </compilationpath>            
     </scalacfork>
     <propertyfile file="${build-quick.dir}/classes/partest/partest.properties">
       <entry key="version.number" value="${partest.version.number}"/>
@@ -1623,7 +1625,7 @@ BOOTRAPING TEST AND TEST SUITE
     <partest showlog="yes" erroronfailed="yes" javacmd="${java.home}/bin/java"
              timeout="2400000"
              srcdir="${partest.srcdir}"
-             scalacopts="${scalac.args.optimise}">
+             scalacopts="${scalac.args.optimise} -Xplugin-require:continuations">
       <compilerarg value="-Xpluginsdir"/>
       <compilerarg file="${build-quick.dir}/misc/scala-devel/plugins"/>
       <compilationpath>
@@ -1656,7 +1658,7 @@ BOOTRAPING TEST AND TEST SUITE
     <partest showlog="yes" erroronfailed="yes" javacmd="${java.home}/bin/java"
              timeout="2400000"
              srcdir="${partest.srcdir}"
-             scalacopts="${scalac.args.optimise}">
+             scalacopts="${scalac.args.optimise} -Xplugin-require:continuations">
       <compilerarg value="-Xpluginsdir"/>
       <compilerarg file="${build-quick.dir}/misc/scala-devel/plugins"/>
       <compilationpath>
