@@ -199,7 +199,7 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
   protected def react(handler: PartialFunction[Msg, Unit]): /*Nothing*/Unit @suspendable = {
     shift { (k: Unit => Unit) => {
       synchronized { drainSendBuffer(mailbox) }
-      searchMailbox(mailbox, handler /*andThen k*/, false)
+      searchMailbox(mailbox, handler andThen k, false)
       throw Actor.suspendException
     } }
   }
