@@ -43,6 +43,7 @@ fi
 
 # Constructing the extension classpath
 EXT_CLASSPATH=""
+SCALAC_PLUGINS=""
 if [ -z "$EXT_CLASSPATH" ] ; then
     if [ -f "$SCALA_HOME/lib/scala-partest.jar" ] ; then
         for ext in "$SCALA_HOME"/lib/* ; do
@@ -52,6 +53,7 @@ if [ -z "$EXT_CLASSPATH" ] ; then
                 EXT_CLASSPATH="$EXT_CLASSPATH:$ext"
             fi
         done
+        SCALAC_PLUGINS="$SCALA_HOME/misc/scala-devel/plugins"
     elif [ -f "$SCALA_HOME/build/pack/lib/scala-partest.jar" ] ; then
         for lib in `echo "partest library compiler"`; do
             ext="$SCALA_HOME/build/pack/lib/scala-$lib.jar"
@@ -61,6 +63,7 @@ if [ -z "$EXT_CLASSPATH" ] ; then
                 EXT_CLASSPATH="$EXT_CLASSPATH:$ext"
             fi
         done
+        SCALAC_PLUGINS="$SCALA_HOME/build/pack/misc/scala-devel/plugins"
     fi
 fi
 
@@ -77,7 +80,7 @@ fi
 # last arg wins, so if JAVA_OPTS already contains -Xmx or -Xms the
 # supplied argument will be used.
 JAVA_OPTS="-Xmx1024M -Xms64M $JAVA_OPTS"
-[ -n "$SCALAC_OPTS" ] || SCALAC_OPTS="-deprecation"
+[ -n "$SCALAC_OPTS" ] || SCALAC_OPTS="-deprecation -Xpluginsdir $SCALAC_PLUGINS"
 
 partestDebugStr=""
 if [ ! -z "${PARTEST_DEBUG}" ] ; then
