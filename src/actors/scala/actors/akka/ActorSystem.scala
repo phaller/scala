@@ -25,19 +25,16 @@ object ActorSystem {
         contextStack.set(if (!stackAfter.head) stackAfter.pop.pop else stackAfter.pop)
     }
   }
-
-  // actorOf(new MyActor())
-  def actorOf(factory: ⇒ RichActor): ActorRef = withCleanContext {
-    val r = new RichActorRef(factory)
+  
+  def actorOf(factory: ⇒ InternalActor): ActorRef = withCleanContext {
+    val r = new InternalActorRef(factory)
     r
   }  
   
-  def actorOf[T <: RichActor](implicit m: Manifest[T]): ActorRef = withCleanContext {
+  def actorOf[T <: InternalActor](implicit m: Manifest[T]): ActorRef = withCleanContext {
     val clazz = m.erasure.asInstanceOf[Class[_ <: RichActor]]
-    val r = new RichActorRef(clazz.newInstance())    
+    val r = new InternalActorRef(clazz.newInstance())    
     r
   }
   
-    
-  // TODO (VJ) def for plain actors 
 }

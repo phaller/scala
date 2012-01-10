@@ -10,6 +10,12 @@ import java.util.TimerTask
 import scala.util.continuations.suspendable
 import scala.util.control.ControlThrowable
 
+private[actors] object InternalActor {
+  private[actors] trait Body[a] {
+    def andThen[b](other: => b): Unit
+  }
+}
+
 private[actors] trait InternalActor extends AbstractActor with InternalReplyReactor with ActorCanReply with InputChannel[Any] with Serializable {
 
   /* The following two fields are only used when the actor
@@ -432,7 +438,8 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
 
   private[actors] def internalPostStop() = {}
 
-  private[actors] def stop(reason: AnyRef): Unit = {
+  
+  private[actors] def stop(reason: AnyRef): Unit = {    
     synchronized {
       shouldExit = true
       exitReason = reason
@@ -444,7 +451,8 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
       else if (waitingFor ne Reactor.waitingForNone) {
         waitingFor = Reactor.waitingForNone
         // it doesn't matter what partial function we are passing here
-        scheduleActor(waitingFor, null)
+        val task = new ActorTask(this, null, waitingFor, null)
+        scheduler execute task                          
         /* Here we should not throw a SuspendActorControl,
            since the current method is called from an actor that
            is in the process of exiting.

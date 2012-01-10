@@ -313,11 +313,7 @@ object Actor extends Combinators {
         def respond(k: B => Unit) = fun(caseBlock andThen k)
       }
 
-  private[actors] trait Body[a] {
-    def andThen[b](other: => b): Unit
-  }
-
-  implicit def mkBody[a](body: => a) = new Body[a] {
+  implicit def mkBody[a](body: => a) = new InternalActor.Body[a] {
     def andThen[b](other: => b): Unit = rawSelf.seq(body, other)
   }    
 

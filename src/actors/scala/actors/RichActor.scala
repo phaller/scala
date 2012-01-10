@@ -3,8 +3,14 @@ package scala.actors
 import scala.util.continuations._
 import scala.collection._
 
+object RichActor extends Combinators {
+  implicit def mkBody[A](body: => A) = new InternalActor.Body[A] {
+    def andThen[B](other: => B): Unit = Actor.rawSelf.seq(body, other)
+  }
+}
+
 trait RichActor extends InternalActor {
-  type Receive = PartialFunction[Any, Unit @suspendable]
+  type Receive = PartialFunction[Any, Unit]
 
   // checks if RichActor is created within the actorOf block
   creationCheck;
@@ -173,10 +179,10 @@ trait RichActor extends InternalActor {
     // creation check (see ActorRef)
     val context = ActorSystem.contextStack.get
     if (context.isEmpty)
-      throw new Exception("must use actorOf to create actor")
+      throw new RuntimeException("In order to create RichActor one must use actorOf.")
     else {
       if (!context.head)
-        throw new Exception("must use actorOf to create actor")
+        throw new RuntimeException("Only one actor can be created per actorOf call.")
       else
         ActorSystem.contextStack.set(context.push(false))
     }
@@ -191,23 +197,22 @@ trait RichActor extends InternalActor {
    * Method that models the behavior of Akka actors.  
    */
   private[actors] def internalAct() {
+    
+    behaviorStack = behaviorStack.push(new PartialFunction[Any, Unit] {
+      def isDefinedAt(x: Any) =
+        handle.isDefinedAt(x)
+      def apply(x: Any) = handle(x)              
+    } orElse {
+      case m => unhandled(m)
+    })
+
     reset {
-
-      behaviorStack = behaviorStack.push(new PartialFunction[Any, Unit] {
-        def isDefinedAt(x: Any) =
-          handle.isDefinedAt(x)
-        def apply(x: Any) =
-          reset { handle(x) }
-      } orElse {
-        case m => unhandled(m)
-      })
-
-      while (true)
+      while(true) {      
         if (receiveTimeout.isDefined)
-          reactWithin(receiveTimeout.get)(behaviorStack.top) // orElse 
+          reactWithin(receiveTimeout.get)(behaviorStack.top) 
         else
           react(behaviorStack.top)
-
+      }
     }
   }
 

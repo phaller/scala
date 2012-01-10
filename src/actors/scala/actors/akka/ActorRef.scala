@@ -21,7 +21,6 @@ trait ActorRef {
 
   def start(): ActorRef
 
-  // TODO (VJ) test with linked
   /**
    * Shuts down the actor its dispatcher and message queue.
    */
@@ -105,8 +104,9 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
   
 }
 
-private[actors] final class RichActorRef(override val actor: RichActor) extends ReplyActorRef(actor) {
+private[actors] final class InternalActorRef(override val actor: InternalActor) extends ReplyActorRef(actor) {
   
+  // TODO (VJ) this does not work
   override def stop(): Unit = actor.stop('normal)
 	
 }
