@@ -15,7 +15,7 @@ trait RichActor extends InternalActor {
   // checks if RichActor is created within the actorOf block
   creationCheck;
 
-  def self: ActorRef = new RichActorRef(this)
+  def self: ActorRef = new InternalActorRef(this)
 
   @volatile
   private[this] var myTimeout: Option[Long] = None
