@@ -311,6 +311,17 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
   }
 
   /**
+   * Links <code>self</code> to actor <code>to</code>.
+   *
+   * @param to the actor to link to
+   * @return   the parameter actor
+   */
+  def link(to: ActorRef): ActorRef = {
+    this.link(to.localActor)
+    to
+  }
+
+  /**
    * Links <code>self</code> to the actor defined by <code>body</code>.
    *
    * @param body the body of the actor to link to
@@ -340,13 +351,19 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
     from unlinkFrom this
   }
 
+  /**
+   * Unlinks <code>self</code> from actor <code>from</code>.
+   */
+  def unlink(from: ActorRef) { 
+    unlink(from.localActor)    
+  }
+
   private[actors] def unlinkFrom(from: AbstractActor) = synchronized {
     links = links.filterNot(from.==)
   }
 
   @volatile
-  @deprecated("use akka equivalent instead.")
-  // TODO (VJ) migrate this to a method
+  @deprecated("use akka equivalent instead.") // TODO (VJ) migrate this to a method
   var trapExit = false
   // guarded by this
   private var exitReason: AnyRef = 'normal
@@ -438,8 +455,7 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
 
   private[actors] def internalPostStop() = {}
 
-  
-  private[actors] def stop(reason: AnyRef): Unit = {    
+  private[actors] def stop(reason: AnyRef): Unit = {
     synchronized {
       shouldExit = true
       exitReason = reason
@@ -452,7 +468,7 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
         waitingFor = Reactor.waitingForNone
         // it doesn't matter what partial function we are passing here
         val task = new ActorTask(this, null, waitingFor, null)
-        scheduler execute task                          
+        scheduler execute task
         /* Here we should not throw a SuspendActorControl,
            since the current method is called from an actor that
            is in the process of exiting.

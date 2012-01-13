@@ -51,6 +51,8 @@ trait ActorRef {
    */
   def stopsWatching(subject: ActorRef): ActorRef = throw new UnsupportedOperationException//TODO FIXME REMOVE THIS
   
+  
+  private[actors] def localActor: AbstractActor 
 }
 
 
@@ -88,6 +90,9 @@ private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
    */
   def forward(message: Any) = actor.forward(message)
 
+  private[actors] override def localActor: AbstractActor = 
+    throw new UnsupportedOperationException("Reactor does not have an instance of the actor")
+  
 }
 
 private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) extends ReactorRef(actor) {
@@ -102,13 +107,16 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
     this
   }
   
+  private[actors] override def localActor: AbstractActor = 
+    throw new UnsupportedOperationException("ReplyReactor does not have an instance of the actor")
 }
 
 private[actors] final class InternalActorRef(override val actor: InternalActor) extends ReplyActorRef(actor) {
   
   // TODO (VJ) this does not work
   override def stop(): Unit = actor.stop('normal)
-	
+  
+  private[actors] override def localActor: AbstractActor = this.actor
 }
 
 
