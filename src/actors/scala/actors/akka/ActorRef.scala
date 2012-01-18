@@ -1,23 +1,51 @@
 package scala.actors
 
-trait ActorRef {
+import scala.util.Timeout
 
-  /**
-   * Sends a message asynchronously, returning a future which may eventually hold the reply.
-   */
-  def ?(message: Any): Future[Any]
+// TODO (VJ) total cleanup of this file. There should be only two definitions here.
 
-  /**
+trait ActorRef  {
+
+/**
    * Sends a one-way asynchronous message. E.g. fire-and-forget semantics.
    * <p/>
    *
+   * If invoked from within an actor then the actor reference is implicitly passed on as the implicit 'sender' argument.
    * <p/>
+   *
+   * This actor 'sender' reference is then available in the receiving actor in the 'sender' member variable,
+   * if invoked from within an Actor. If not then no sender is available.
    * <pre>
    *   actor ! message
    * </pre>
    * <p/>
    */
-  def !(msg: Any): Unit
+  def !(message: Any)(implicit sender: ActorRef = null): Unit
+
+  /**
+   * Sends a message asynchronously, returning a future which may eventually hold the reply.
+   * TODO (VJ)
+   * The Future will be completed with an [[akka.actor.AskTimeoutException]] after the given
+   * timeout has expired.
+   *
+   * <b>NOTE:</b>
+   * Use this method with care. In most cases it is better to use '!' together with implicit or explicit
+   * sender parameter to implement non-blocking request/response message exchanges.
+   *
+   * If you are sending messages using <code>ask</code> and using blocking operations on the Future, such as
+   * 'get', then you <b>have to</b> use <code>getContext().sender().tell(...)</code>
+   * in the target actor to send a reply message to the original sender, and thereby completing the Future,
+   * otherwise the sender will block until the timeout expires.
+   *
+   * When using future callbacks, inside actors you need to carefully avoid closing over
+   * the containing actor’s reference, i.e. do not call methods or access mutable state
+   * on the enclosing actor from within the callback. This would break the actor
+   * encapsulation and may introduce synchronization bugs and race conditions because
+   * the callback will be scheduled concurrently to the enclosing actor. Unfortunately
+   * there is not yet a way to detect these illegal accesses at compile time.
+   */
+  def ?(message: Any)(implicit timeout: Timeout): Future[Any]
+
 
   def start(): ActorRef
 
@@ -57,11 +85,9 @@ trait ActorRef {
 
 
 private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
-
-  /**
-   * Sends a message asynchronously, returning a future which may eventually hold the reply.
-   */
-  def ?(message: Any): Future[Any] = throw new UnsupportedOperationException("NIY")// TODO (VJ) fix this when futures are introduced. Use broken promise by default.
+     
+  def ?(message: Any)(implicit timeout: Timeout): Future[Any] = 
+    throw new UnsupportedOperationException("NIY")
 
   /**
    * Sends a one-way asynchronous message. E.g. fire-and-forget semantics.
@@ -73,16 +99,19 @@ private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
    * </pre>
    * <p/>
    */
-  def !(msg: Any): Unit = actor ! msg
+  def !(message: Any)(implicit sender: ActorRef = null): Unit = 
+    actor.send(message, sender.localActor)
 
-  def start(): ActorRef = this
+  def start(): ActorRef = {
+    actor.start()
+    this
+  }
   
   /**
    * Shuts down the actor its dispatcher and message queue.
    */
   def stop(): Unit = ()
 
-  
   /**
    * Forwards the message and passes the original sender actor as the sender.
    * <p/>
@@ -100,7 +129,8 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
   /**
    * Sends a message asynchronously, returning a future which may eventually hold the reply.
    */
-  override def ?(message: Any): Future[Any] = actor !! message
+  override def ?(message: Any)(implicit timeout: Timeout): Future[Any] = 
+    actor !! message
 
   override def start(): ActorRef = {
     actor.start()
