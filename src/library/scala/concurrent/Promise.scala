@@ -25,6 +25,9 @@ import scala.util.Timeout
  *  If the throwable used to fail this promise is an error, a control exception
  *  or an interrupted exception, it will be wrapped as a cause within an
  *  `ExecutionException` which will fail the promise.
+ *  
+ *  @define nonDeterministic
+ *  Note: Using this method may result in non-deterministic concurrent programs.
  */
 trait Promise[T] {
   
@@ -32,13 +35,50 @@ trait Promise[T] {
    */
   def future: Future[T]
   
+  private def throwCompleted = throw new IllegalStateException("Promise already completed.")
+  
+  /** Completes the promise with either an exception or a value.
+   *  
+   *  @param result     Either the value or the exception to complete the promise with.
+   *  
+   *  $promiseCompletion
+   */
+  def complete(result: Either[Throwable, T]): this.type = if (tryComplete(result)) this else throwCompleted
+  
+  /** Tries to complete the promise with either a value or the exception.
+   *  
+   *  $nonDeterministic
+   *  
+   *  @return    If the promise has already been completed returns `false`, or `true` otherwise.
+   */
+  def tryComplete(result: Either[Throwable, T]): Boolean
+  
+  /** Completes this promise with the specified future, once that future is completed.
+   *  
+   *  @return   This promise
+   */
+  final def completeWith(other: Future[T]): this.type = {
+    other onComplete {
+      this complete _
+    }
+    this
+  }
+  
   /** Completes the promise with a value.
    *  
    *  @param value    The value to complete the promise with.
    *  
    *  $promiseCompletion
    */
-  def success(value: T): Unit
+  def success(v: T): this.type = if (trySuccess(v)) this else throwCompleted
+  
+  /** Tries to complete the promise with a value.
+   *  
+   *  $nonDeterministic
+   *  
+   *  @return    If the promise has already been completed returns `false`, or `true` otherwise.
+   */
+  def trySuccess(value: T): Boolean = tryComplete(Right(value))
   
   /** Completes the promise with an exception.
    *  
@@ -48,8 +88,16 @@ trait Promise[T] {
    *  
    *  $promiseCompletion
    */
-  def failure(t: Throwable): Unit
-
+  def failure(t: Throwable): this.type = if (tryFailure(t)) this else throwCompleted
+  
+  /** Tries to complete the promise with an exception.
+   *  
+   *  $nonDeterministic
+   *  
+   *  @return    If the promise has already been completed returns `false`, or `true` otherwise.
+   */
+  def tryFailure(t: Throwable): Boolean = tryComplete(Left(t))
+  
   /** Wraps a `Throwable` in an `ExecutionException` if necessary.
    *
    *  $allowedThrowables
@@ -58,21 +106,13 @@ trait Promise[T] {
     case t: Throwable if isFutureThrowable(t) => t
     case _ => new ExecutionException(t)
   }
-
+  
 }
 
 
 
 object Promise {
-  /*
-  /**
-   * Creates a non-completed, new, Promise with the supplied timeout in milliseconds
-   */
-  def apply[A](timeout: Timeout)(implicit dispatcher: MessageDispatcher): Promise[A] = DefaultPromise[A](timeout)
-
-  /**
-   * Creates a non-completed, new, Promise with the default timeout (akka.actor.timeout in conf)
-   */
-  def apply[A]()(implicit dispatcher: MessageDispatcher, timeout: Timeout): Promise[A] = apply(timeout)
-  */
+  
+  
+  
 }

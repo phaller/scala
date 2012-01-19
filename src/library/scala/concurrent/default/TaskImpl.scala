@@ -5,15 +5,15 @@ package default
 
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater
 import scala.concurrent.forkjoin.{ ForkJoinPool, RecursiveAction, ForkJoinWorkerThread }
-import scala.util.{ Timeout, Duration }
+import scala.util.Duration
 import scala.annotation.tailrec
 
 
 
 private[concurrent] trait Completable[T] {
-  self: Future[T] =>
+self: Future[T] =>
   
-  val executionContext: ExecutionContextImpl
+  val executor: ExecutionContextImpl
 
   type Callback = Either[Throwable, T] => Any
 
@@ -62,9 +62,9 @@ private[concurrent] trait Completable[T] {
 }
 
 private[concurrent] class PromiseImpl[T](context: ExecutionContextImpl)
-  extends Promise[T] with Future[T] with Completable[T] {
+extends Promise[T] with Future[T] with Completable[T] {
  
-  val executionContext: scala.concurrent.default.ExecutionContextImpl = context
+  val executor: scala.concurrent.default.ExecutionContextImpl = context
 
   @volatile private var state: State[T] = _
 
@@ -85,44 +85,39 @@ private[concurrent] class PromiseImpl[T](context: ExecutionContextImpl)
     case _ => null
   }
   
-  /** Completes the promise with a value.
-   *  
-   *  @param value    The value to complete the promise with.
-   *  
-   *  $promiseCompletion
-   */
-  def success(value: T): Unit = {
+  def tryComplete(r: Either[Throwable, T]) = r match {
+    case Left(t) => tryFailure(t)
+    case Right(v) => trySuccess(v)
+  }
+  
+  override def trySuccess(value: T): Boolean = {
     val cbs = tryCompleteState(Success(value))
     if (cbs == null)
-      throw new IllegalStateException
+      false
     else {
       processCallbacks(cbs, Right(value))
       this.synchronized {
         this.notifyAll()
       }
+      true
     }
   }
 
-  /** Completes the promise with an exception.
-   *  
-   *  @param t        The throwable to complete the promise with.
-   *  
-   *  $promiseCompletion
-   */
-  def failure(t: Throwable): Unit = {
+  override def tryFailure(t: Throwable): Boolean = {
     val wrapped = wrap(t)
     val cbs = tryCompleteState(Failure(wrapped))
     if (cbs == null)
-      throw new IllegalStateException
+      false
     else {
       processCallbacks(cbs, Left(wrapped))
       this.synchronized {
         this.notifyAll()
       }
+      true
     }
   }
   
-  def await(timeout: Timeout)(implicit canblock: scala.concurrent.CanBlock): T = getState match {
+  def await(atMost: Duration)(implicit canawait: scala.concurrent.CanAwait): T = getState match {
     case Success(res) => res
     case Failure(t)   => throw t
     case _ =>
@@ -140,9 +135,9 @@ private[concurrent] class PromiseImpl[T](context: ExecutionContextImpl)
 }
 
 private[concurrent] class TaskImpl[T](context: ExecutionContextImpl, body: => T)
-  extends RecursiveAction with Task[T] with Future[T] with Completable[T] {
+extends RecursiveAction with Task[T] with Future[T] with Completable[T] {
 
-  val executionContext: ExecutionContextImpl = context
+  val executor: ExecutionContextImpl = context
 
   @volatile private var state: State[T] = _
 
@@ -179,8 +174,8 @@ private[concurrent] class TaskImpl[T](context: ExecutionContextImpl, body: => T)
   
   def start(): Unit = {
     Thread.currentThread match {
-      case fj: ForkJoinWorkerThread if fj.getPool eq executionContext.pool => fork()
-      case _ => executionContext.pool.execute(this)
+      case fj: ForkJoinWorkerThread if fj.getPool eq executor.pool => fork()
+      case _ => executor.pool.execute(this)
     }
   }
   
@@ -196,7 +191,7 @@ private[concurrent] class TaskImpl[T](context: ExecutionContextImpl, body: => T)
   def tryCancel(): Unit =
     tryUnfork()
   
-  def await(timeout: Timeout)(implicit canblock: CanBlock): T = {
+  def await(atMost: Duration)(implicit canawait: CanAwait): T = {
     join() // TODO handle timeout also
     (updater.get(this): @unchecked) match {
       case Success(r) => r
@@ -220,6 +215,8 @@ case class Failure[T](throwable: Throwable) extends State[T]
 
 
 private[concurrent] final class ExecutionContextImpl extends ExecutionContext {
+  import ExecutionContextImpl._
+  
   val pool = {
     val p = new ForkJoinPool
     p.setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler {
@@ -262,17 +259,26 @@ private[concurrent] final class ExecutionContextImpl extends ExecutionContext {
   def promise[T]: Promise[T] =
     new PromiseImpl[T](this)
   
-  // TODO fix the timeout
-  def blockingCall[T](timeout: Timeout, b: Awaitable[T]): T = b match {
-    case fj: TaskImpl[_] if fj.executionContext.pool eq pool =>
-      fj.await(timeout)
+  def blocking[T](atMost: Duration)(body: =>T): T = blocking(body2awaitable(body), atMost)
+  
+  def blocking[T](awaitable: Awaitable[T], atMost: Duration): T = {
+    currentExecutionContext.get match {
+      case null => awaitable.await(atMost)(null) // outside - TODO - fix timeout case
+      case x if x eq this => this.blockingCall(awaitable) // inside an execution context thread on this executor
+      case x => x.blocking(awaitable, atMost)
+    }
+  }
+  
+  private def blockingCall[T](b: Awaitable[T]): T = b match {
+    case fj: TaskImpl[_] if fj.executor.pool eq pool =>
+      fj.await(Duration.fromNanos(0))
     case _ =>
       var res: T = null.asInstanceOf[T]
       @volatile var blockingDone = false
       // TODO add exception handling here!
       val mb = new ForkJoinPool.ManagedBlocker {
         def block() = {
-          res = b.await(timeout)(CanBlockEvidence)
+          res = b.await(Duration.fromNanos(0))(CanAwaitEvidence)
           blockingDone = true
           true
         }
@@ -283,3 +289,19 @@ private[concurrent] final class ExecutionContextImpl extends ExecutionContext {
   }
 
 }
+
+
+object ExecutionContextImpl {
+  
+  private[concurrent] def currentExecutionContext: ThreadLocal[ExecutionContext] = new ThreadLocal[ExecutionContext] {
+    override protected def initialValue = null
+  }
+  
+}
+
+
+
+
+
+
+
