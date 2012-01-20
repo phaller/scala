@@ -10,20 +10,21 @@ package scala.concurrent
 
 
 
-import scala.util.{ Timeout, Duration }
-import scala.Option
-
 import java.util.concurrent.{ ConcurrentLinkedQueue, TimeUnit, Callable }
 import java.util.concurrent.TimeUnit.{ NANOSECONDS => NANOS, MILLISECONDS ⇒ MILLIS }
 import java.lang.{ Iterable => JIterable }
 import java.util.{ LinkedList => JLinkedList }
+import java.{ lang => jl }
+import java.util.concurrent.atomic.{ AtomicReferenceFieldUpdater, AtomicInteger, AtomicBoolean }
+
+import scala.util.{ Timeout, Duration }
+import scala.Option
 
 import scala.annotation.tailrec
 import scala.collection.mutable.Stack
-import java.{ lang => jl }
-import java.util.concurrent.atomic.{ AtomicReferenceFieldUpdater, AtomicInteger, AtomicBoolean }
 import scala.collection.mutable.Builder
 import scala.collection.generic.CanBuildFrom
+import scala.annotation.implicitNotFound
 
 
 
@@ -40,6 +41,8 @@ import scala.collection.generic.CanBuildFrom
  *    case msg => println(msg)
  *  }
  *  }}}
+ *  
+ *  @author  Philipp Haller, Heather Miller, Aleksandar Prokopec, Viktor Klang
  *  
  *  @define multipleCallbacks
  *  Multiple callbacks may be registered; there is no guarantee that they will be
@@ -75,9 +78,6 @@ import scala.collection.generic.CanBuildFrom
  *  {{{
  *  f flatMap { (x: Int) => g map { (y: Int) => x + y } }
  *  }}}
- *  
- *  @define nonDeterministic
- *  Note: using this method yields nondeterministic dataflow programs.
  */
 trait Future[+T] extends Awaitable[T] {
 self =>
@@ -334,6 +334,8 @@ self =>
    *  
    *  Using this method will not cause concurrent programs to become nondeterministic.
    *  
+   *  
+   *  
    *  Example:
    *  {{{
    *  val f = future { sys.error("failed") }
@@ -365,24 +367,27 @@ self =>
    *  {{{
    *  val f = future { sys.error("failed") }
    *  val g = future { 5 }
-   *  val h = f any g
+   *  val h = f either g
    *  await(0) h // evaluates to either 5 or throws a runtime exception
    *  }}}
    */
-  def any[U >: T](that: Future[U]): Future[U] = {
-    val p = newPromise[U]
+  @implicitNotFound(msg = "Calling this method yields non-deterministic programs.")
+  def either[U >: T](that: Future[U])(implicit nondet: NonDeterministic): Future[U] = {
+    val p = self.newPromise[U]
     
-    val completePromise: PartialFunction[Either[Throwable, T], _] = {
+    val completePromise: PartialFunction[Either[Throwable, U], _] = {
       case Left(t) => p tryFailure t
       case Right(v) => p trySuccess v
     }
-    this onComplete completePromise
-    this onComplete completePromise
+    
+    self onComplete completePromise
+    that onComplete completePromise
     
     p.future
   }
   
 }
+
 
 
 /** TODO some docs
@@ -393,13 +398,17 @@ self =>
 object Future {
   
   // TODO make more modular by encoding all other helper methods within the execution context
-  /**
+  /** TODO some docs
    */
   def all[T, Coll[X] <: Traversable[X]](futures: Coll[Future[T]])(implicit cbf: CanBuildFrom[Coll[_], T, Coll[T]], ec: ExecutionContext): Future[Coll[T]] =
-    ec.futureUtilities.all[T, Coll](futures)
+    ec.all[T, Coll](futures)
   
   // move this to future companion object
   @inline def apply[T](body: =>T)(implicit executor: ExecutionContext): Future[T] = executor.future(body)
+
+  def any[T](futures: Traversable[Future[T]])(implicit ec: ExecutionContext, nondet: NonDeterministic): Future[T] = ec.any(futures)
+
+  def find[T](futures: Traversable[Future[T]])(predicate: T => Boolean)(implicit ec: ExecutionContext, nondet: NonDeterministic): Future[Option[T]] = ec.find(futures)(predicate)
   
 }
 

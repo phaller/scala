@@ -10,10 +10,13 @@ package scala.concurrent
 
 
 
+import java.util.concurrent.atomic.{ AtomicInteger }
 import java.util.concurrent.{ Executors, Future => JFuture, Callable }
-import scala.util.{ Duration, Timeout }
+import scala.util.Duration
 import scala.concurrent.forkjoin.{ ForkJoinPool, RecursiveTask => FJTask, RecursiveAction, ForkJoinWorkerThread }
 import scala.collection.generic.CanBuildFrom
+import collection._
+import annotation.implicitNotFound
 
 
 
@@ -35,7 +38,90 @@ trait ExecutionContext {
   
   def blocking[T](awaitable: Awaitable[T], atMost: Duration): T
   
-  def futureUtilities: FutureUtilities = FutureUtilitiesImpl
+  /* implementations follow */
+  
+  private implicit val executionContext = this
+  
+  def keptPromise[T](result: T): Promise[T] = {
+    val p = promise[T]
+    p success result
+  }
+  
+  def brokenPromise[T](t: Throwable): Promise[T] = {
+    val p = promise[T]
+    p failure t
+  }
+  
+  /** TODO some docs
+   *  
+   */
+  def all[T, Coll[X] <: Traversable[X]](futures: Coll[Future[T]])(implicit cbf: CanBuildFrom[Coll[_], T, Coll[T]]): Future[Coll[T]] = {
+    import nondeterministic._
+    val buffer = new mutable.ArrayBuffer[T]
+    val counter = new AtomicInteger(1) // how else could we do this?
+    val p: Promise[Coll[T]] = promise[Coll[T]] // we need an implicit execctx in the signature
+    var idx = 0
+    
+    def tryFinish() = if (counter.decrementAndGet() == 0) {
+      val builder = cbf(futures)
+      builder ++= buffer
+      p success builder.result
+    }
+    
+    for (f <- futures) {
+      val currentIndex = idx
+      buffer += null.asInstanceOf[T]
+      counter.incrementAndGet()
+      f onComplete {
+        case Left(t) =>
+          p tryFailure t
+        case Right(v) =>
+          buffer(currentIndex) = v
+        tryFinish()
+      }
+      idx += 1
+    }
+    
+    tryFinish()
+    
+    p.future
+  }
+  
+  /** TODO some docs
+   *  
+   */
+  @implicitNotFound(msg = "Calling this method yields non-deterministic programs.")
+  def any[T](futures: Traversable[Future[T]])(implicit nondet: NonDeterministic): Future[T] = {
+    val p = promise[T]
+    val completeFirst: Either[Throwable, T] => Unit = elem => p tryComplete elem
+    
+    futures foreach (_ onComplete completeFirst)
+    
+    p.future
+  }
+  
+  /** TODO some docs
+   *  
+   */
+  @implicitNotFound(msg = "Calling this method yields non-deterministic programs.")
+  def find[T](futures: Traversable[Future[T]])(predicate: T => Boolean)(implicit nondet: NonDeterministic): Future[Option[T]] = {
+    if (futures.isEmpty) Promise.kept[Option[T]](None).future
+    else {
+      val result = promise[Option[T]]
+      val count = new AtomicInteger(futures.size)
+      val search: Either[Throwable, T] => Unit = { 
+        v => v match {
+          case Right(r) => if (predicate(r)) result trySuccess Some(r)
+          case _        =>
+        }
+        if (count.decrementAndGet() == 0) result trySuccess None
+      }
+      
+      futures.foreach(_ onComplete search)
+
+      result.future
+    }
+  }
   
 }
 
@@ -43,35 +129,4 @@ trait ExecutionContext {
 sealed trait CanAwait
 
 
-trait FutureUtilities {
-  
-  def all[T, Coll[X] <: Traversable[X]](futures: Coll[Future[T]])(implicit cbf: CanBuildFrom[Coll[_], T, Coll[T]]): Future[Coll[T]] = {
-    val builder = cbf(futures)
-    val p: Promise[Coll[T]] = promise[Coll[T]]
-    
-    if (futures.size == 1) futures.head onComplete {
-      case Left(t) => p failure t
-      case Right(v) => builder += v
-        p success builder.result
-    } else {
-      val restFutures = all(futures.tail)
-      futures.head onComplete {
-        case Left(t) => p failure t
-        case Right(v) => builder += v
-          restFutures onComplete {
-            case Left(t) => p failure t
-            case Right(vs) => for (v <- vs) builder += v
-              p success builder.result
-          }
-      }
-    }
-    
-    p.future
-  }
-  
-}
-
-
-object FutureUtilitiesImpl extends FutureUtilities {
-}
 

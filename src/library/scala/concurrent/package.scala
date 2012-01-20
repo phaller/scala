@@ -6,13 +6,11 @@
 **                          |/                                          **
 \*                                                                      */
 
-
-
 package scala
 
 
 
-import scala.util.{ Timeout, Duration }
+import scala.util.Duration
 
 
 
@@ -113,6 +111,19 @@ package object concurrent {
     }
   }
   
+  /** Importing this object allows using some concurrency primitives
+   *  on futures and promises that can yield nondeterministic programs.
+   *  
+   *  While program determinism is broken when using these primitives,
+   *  some programs cannot be written without them (e.g. multiple client threads
+   *  cannot send requests to a server thread through regular promises and futures).
+   */
+  object nondeterministic {
+    
+    implicit val nonDeterministicEvidence = new NonDeterministic {}
+    
+  }
+  
 }
 
 
@@ -128,6 +139,14 @@ package concurrent {
   class FutureTimeoutException(origin: Future[_], message: String) extends TimeoutException(message) {
     def this(origin: Future[_]) = this(origin, "Future timed out.")
   }
+  
+  /** Evidence that the program can be nondeterministic.
+   *  
+   *  Programs in which such an evidence is available in scope
+   *  can contain calls to methods which yield nondeterministic
+   *  programs.
+   */
+  sealed trait NonDeterministic
   
 }
 
