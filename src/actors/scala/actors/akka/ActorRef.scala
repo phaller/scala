@@ -134,7 +134,7 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
    */
   override def ?(message: Any)(implicit timeout: Timeout): Future[Any] = 
     Futures.future{
-      val dur = if (timeout.duration.isFinite()) timeout.duration.toMillis else Long.MaxValue
+      val dur = if (timeout.duration.isFinite()) timeout.duration.toMillis else (java.lang.Long.MAX_VALUE >> 2)
       actor !?(dur, message) match {
         case Some(x) => x
         case None => new AskTimeoutException("? operation timed out.")

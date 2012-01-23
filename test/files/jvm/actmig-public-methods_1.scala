@@ -62,15 +62,16 @@ object Test {
     latch.countDown()
 
     val msg2 = ("bang qmark in future", 0L) 
-    val fut1 = respActor ? (msg2)
+    val fut1 = respActor.?(msg2)(Duration.Inf)
     append(fut1().toString())
     latch.countDown()
 
     val handler: PartialFunction[Any, String] =  {
       case x: String => x.toString
     }
+
     val msg3 = ("typed bang qmark in future", 0L) 
-    val fut2 = (respActor ? msg3)
+    val fut2 = (respActor.?(msg3)(Duration.Inf))
     append(Futures.future{handler.apply(fut2())}().toString)
     latch.countDown()
 
