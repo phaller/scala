@@ -6,7 +6,7 @@ import scala.util.continuations._
 import java.util.concurrent.{TimeUnit, CountDownLatch}
 
 object Test {
- val NUMBER_OF_TESTS = 4
+ val NUMBER_OF_TESTS = 6
 
  // used for sorting non-deterministic output
   val buff = ArrayBuffer[String]()
@@ -41,14 +41,23 @@ object Test {
     append(res1.toString)
     latch.countDown()
     
-    val res2 = respActor !? (2, ("bang qmark", 1L))
-    res2.foreach(v => append(v.toString))
+    val res2 = respActor !? (15, ("bang qmark", 1L))
+    append(res2.toString)
     latch.countDown()
-    
+
+    val res21 = respActor !? (1, ("bang qmark", 15L))
+    append(res21.toString)
+    latch.countDown()
+   
     val fut1 = respActor !! (("bang qmark in future", 0L))
     append(fut1().toString())
     latch.countDown()
     
+    val fut2 = respActor !! (("typed bang qmark in future", 0L), {case x: String => x})
+    append(fut2())
+    latch.countDown()
+    
+ 
     // output
     latch.await(10, TimeUnit.MILLISECONDS)
     if (latch.getCount() > 0) {

@@ -1,7 +1,7 @@
 package scala.actors
 
 import scala.util.Timeout
-
+import java.util.concurrent.{TimeoutException}
 // TODO (VJ) total cleanup of this file. There should be only two definitions here.
 
 trait ActorRef  {
@@ -100,7 +100,10 @@ private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
    * <p/>
    */
   def !(message: Any)(implicit sender: ActorRef = null): Unit = 
-    actor.send(message, sender.localActor)
+    if (sender != null)
+    	actor.send(message, sender.localActor)
+    else 
+        actor ! message
 
   def start(): ActorRef = {
     actor.start()
@@ -130,7 +133,13 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
    * Sends a message asynchronously, returning a future which may eventually hold the reply.
    */
   override def ?(message: Any)(implicit timeout: Timeout): Future[Any] = 
-    actor !! message
+    Futures.future{
+      val dur = if (timeout.duration.isFinite()) timeout.duration.toMillis else Long.MaxValue
+      actor !?(dur, message) match {
+        case Some(x) => x
+        case None => new AskTimeoutException("? operation timed out.")
+      }
+    }
 
   override def start(): ActorRef = {
     actor.start()
@@ -149,4 +158,10 @@ private[actors] final class InternalActorRef(override val actor: InternalActor) 
   private[actors] override def localActor: AbstractActor = this.actor
 }
 
-
+/**
+ * This is what is used to complete a Future that is returned from an ask/? call,
+ * when it times out.
+ */
+class AskTimeoutException(message: String, cause: Throwable) extends TimeoutException {
+  def this(message: String) = this(message, null: Throwable)
+}
