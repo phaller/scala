@@ -362,9 +362,13 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
     links = links.filterNot(from.==)
   }
 
-  @volatile
-  @deprecated("use akka equivalent instead.") // TODO (VJ) migrate this to a method
-  var trapExit = false
+  @volatile  
+  private[actors] var _trapExit = false
+  
+  def trapExit = _trapExit
+  
+  def trapExit_=(value: Boolean) = _trapExit = value
+  
   // guarded by this
   private var exitReason: AnyRef = 'normal
   // guarded by this
