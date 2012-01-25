@@ -1,7 +1,6 @@
 import scala.actors.ActorSystem._
 import scala.actors.Actor._
 import scala.actors.{Actor, RichActor, ActorRef}
-import scala.util.continuations._
 import java.util.concurrent.{TimeUnit, CountDownLatch}
 import scala.collection.mutable.ArrayBuffer
 

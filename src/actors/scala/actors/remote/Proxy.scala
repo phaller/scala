@@ -117,75 +117,72 @@ private[remote] class DelegateActor(creator: Proxy, node: Node, name: Symbol, ke
   var channelMap = new HashMap[Symbol, OutputChannel[Any]]
   var sessionMap = new HashMap[OutputChannel[Any], Symbol]
 
-  def repeat(): Unit @suspendable = {
-      react {
-        case cmd@Apply0(rfun) =>
-          kernel.remoteApply(node, name, sender, rfun)
+    def act() {
+      Actor.loop {
+        react {
+          case cmd@Apply0(rfun) =>
+            kernel.remoteApply(node, name, sender, rfun)
 
-        case cmd@LocalApply0(rfun, target) =>
-          rfun(target, creator)
+          case cmd@LocalApply0(rfun, target) =>
+            rfun(target, creator)
 
-        // Request from remote proxy.
-        // `this` is local proxy.
-        case cmd@SendTo(out, msg, session) =>
-          if (session.name == "nosession") {
-            // local send
-            out.send(msg, this)
-          } else {
-            // is this an active session?
-            channelMap.get(session) match {
-              case None =>
-                // create a new reply channel...
-                val replyCh = new Channel[Any](this)
-                // ...that maps to session
-                sessionMap += Pair(replyCh, session)
-                // local send
-                out.send(msg, replyCh)
+          // Request from remote proxy.
+          // `this` is local proxy.
+          case cmd@SendTo(out, msg, session) =>
+            if (session.name == "nosession") {
+              // local send
+              out.send(msg, this)
+            } else {
+              // is this an active session?
+              channelMap.get(session) match {
+                case None =>
+                  // create a new reply channel...
+                  val replyCh = new Channel[Any](this)
+                  // ...that maps to session
+                  sessionMap += Pair(replyCh, session)
+                  // local send
+                  out.send(msg, replyCh)
 
-              // finishes request-reply cycle
-              case Some(replyCh) =>
-                channelMap -= session
-                replyCh ! msg
+                // finishes request-reply cycle
+                case Some(replyCh) =>
+                  channelMap -= session
+                  replyCh ! msg
+              }
             }
-          }
 
-        case cmd@Terminate =>
-          exit()
+          case cmd@Terminate =>
+            exit()
 
-        // local proxy receives response to
-        // reply channel
-        case ch ! resp =>
-          // lookup session ID
-          sessionMap.get(ch) match {
-            case Some(sid) =>
-              sessionMap -= ch
-              val msg = resp.asInstanceOf[AnyRef]
-              // send back response
-              kernel.forward(sender, node, name, msg, sid)
+          // local proxy receives response to
+          // reply channel
+          case ch ! resp =>
+            // lookup session ID
+            sessionMap.get(ch) match {
+              case Some(sid) =>
+                sessionMap -= ch
+                val msg = resp.asInstanceOf[AnyRef]
+                // send back response
+                kernel.forward(sender, node, name, msg, sid)
 
-            case None =>
-              Debug.info(this+": cannot find session for "+ch)
-          }
+              case None =>
+                Debug.info(this+": cannot find session for "+ch)
+            }
 
-        // remote proxy receives request
-        case msg: AnyRef =>
-          // find out whether it's a synchronous send
-          if (sender.getClass.toString.contains("Channel")) {
-            // create fresh session ID...
-            val fresh = FreshNameCreator.newName(node+"@"+name)
-            // ...that maps to reply channel
-            channelMap += Pair(fresh, sender)
-            kernel.forward(sender, node, name, msg, fresh)
-          } else {
-            kernel.forward(sender, node, name, msg, 'nosession)
-          }
-      }
+          // remote proxy receives request
+          case msg: AnyRef =>
+            // find out whether it's a synchronous send
+            if (sender.getClass.toString.contains("Channel")) {
+              // create fresh session ID...
+              val fresh = FreshNameCreator.newName(node+"@"+name)
+              // ...that maps to reply channel
+              channelMap += Pair(fresh, sender)
+              kernel.forward(sender, node, name, msg, fresh)
+            } else {
+              kernel.forward(sender, node, name, msg, 'nosession)
+            }
+        }
 
-    repeat()
-  }
-
-  def act() {
-    reset { repeat() }
+    }
   }
 
 }

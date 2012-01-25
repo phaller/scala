@@ -11,7 +11,6 @@ package scala.actors
 
 import scala.actors.scheduler.DaemonScheduler
 import scala.concurrent.SyncVar
-import scala.util.continuations._
 
 /** A function of arity 0, returing a value of type `T` that,
  *  when applied, blocks the current actor (`Actor.self`)
@@ -53,7 +52,7 @@ abstract class Future[+T] extends Responder[T] with Function0[T] {
 
 private case object Eval
 
-private class FutureActor[T](fun: SyncVar[T] => Unit @suspendable, channel: Channel[T]) extends Future[T] with DaemonActor {
+private class FutureActor[T](fun: SyncVar[T] => Unit, channel: Channel[T]) extends Future[T] with DaemonActor {
 
   var enableChannel = false // guarded by this
 
@@ -69,12 +68,11 @@ private class FutureActor[T](fun: SyncVar[T] => Unit @suspendable, channel: Chan
   def respond(k: T => Unit) {
     if (isSet) k(fvalueTyped)
     else {
-      val ft = this !! Eval
-      reset {
-        ft.inputChannel.react {
-          case _ => k(fvalueTyped)
-        }
+      val ft = this !! Eval      
+      ft.inputChannel.react {
+        case _ => k(fvalueTyped)
       }
+      
     }
   }
 
@@ -88,29 +86,29 @@ private class FutureActor[T](fun: SyncVar[T] => Unit @suspendable, channel: Chan
     }
     channel
   }
+  
+  def act() {
+    val res = new SyncVar[T]
 
-  def looping(): Unit @suspendable = {
-    react {
-      case Eval => reply()
-    }
-    looping()
-  }
-
-  def act() {    
-    reset {
-      val res = new SyncVar[T]
+    {
       fun(res)
+    } andThen {
 
       synchronized {
         val v = res.get
-        fvalue = Some(v)
+        fvalue =  Some(v)
         if (enableChannel)
           channel ! v
       }
 
-      looping()
+      loop {
+        react {
+          case Eval => reply()
+        }
+      }
     }
   }
+  
 }
 
 /** Methods that operate on futures.

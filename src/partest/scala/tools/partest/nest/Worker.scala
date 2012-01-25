@@ -24,7 +24,6 @@ import scala.tools.scalap.scalax.rules.scalasig.ByteCode
 import scala.collection.{ mutable, immutable }
 import scala.tools.nsc.interactive.{ BuildManager, RefinedBuildManager }
 import scala.sys.process._
-import scala.util.continuations._
 
 case class RunTests(kind: String, files: List[File])
 case class Results(results: Map[String, Int])
@@ -216,18 +215,16 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
     msg + "\n  scalac -help  gives more information"
   )
 
-  def act() {            
-//    reset {      
-      receive { // react {
-        case RunTests(testKind, files) =>
-          val master = sender
-          kind = testKind
-          runTests(files) { results =>
-            master ! Results(results.toMap)
-            resetAll()
-          }
-      }
-//    }
+  def act() {                  
+    react {
+      case RunTests(testKind, files) =>
+        val master = sender
+        kind = testKind
+        runTests(files) { results =>
+          master ! Results(results.toMap)
+          resetAll()
+        }
+    }
   }
 
   private def printInfoStart(file: File, printer: PrintWriter) {

@@ -10,7 +10,6 @@
 package scala.actors
 
 import scala.util.control.ControlThrowable
-import scala.util.continuations._
 import java.util.{TimerTask}
 
 /**
@@ -238,7 +237,7 @@ object Actor extends Combinators {
    * @param  f a partial function specifying patterns and actions
    * @return   this function never returns
    */
-  def react(f: PartialFunction[Any, Unit]): /*Nothing*/Unit @suspendable =
+  def react(f: PartialFunction[Any, Unit]): Nothing =
     rawSelf.react(f)
 
   /**
@@ -252,10 +251,10 @@ object Actor extends Combinators {
    * @param  f    a partial function specifying patterns and actions
    * @return      this function never returns
    */
-  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Unit @suspendable =
+  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Nothing =
     self.reactWithin(msec)(f)
 
-  def eventloop(f: PartialFunction[Any, Unit]): /*Nothing*/Unit @suspendable =
+  def eventloop(f: PartialFunction[Any, Unit]): Nothing =
     rawSelf.react(new RecursiveProxyHandler(rawSelf, f))
 
   private class RecursiveProxyHandler(a: InternalReplyReactor, f: PartialFunction[Any, Unit])
@@ -264,7 +263,7 @@ object Actor extends Combinators {
       true // events are immediately removed from the mailbox
     def apply(m: Any) {
       if (f.isDefinedAt(m)) f(m)
-      reset { a.react(this) }
+      a.react(this)
     }
   }
 

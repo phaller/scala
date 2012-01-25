@@ -95,7 +95,7 @@ trait InternalReplyReactor extends Reactor[Any] with ReactorCanReply {
   private[actors] override def makeReaction(fun: () => Unit, handler: PartialFunction[Any, Any], msg: Any): Runnable =
     new ReplyReactorTask(this, fun, handler, msg)
 
-  protected[actors] override def react(handler: PartialFunction[Any, Unit]): /*Nothing*/Unit @suspendable = {
+  protected[actors] override def react(handler: PartialFunction[Any, Unit]): Nothing = {
     assert(Actor.rawSelf(scheduler) == this, "react on channel belonging to other actor")
     super.react(handler)
   }
@@ -111,7 +111,7 @@ trait InternalReplyReactor extends Reactor[Any] with ReactorCanReply {
    * @param  msec     the time span before timeout
    * @param  handler  a partial function with message patterns and actions
    */
-  protected[actors] def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Unit@suspendable = {
+  protected[actors] def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Nothing = {
     assert(Actor.rawSelf(scheduler) == this, "react on channel belonging to other actor")
 
     synchronized { drainSendBuffer(mailbox) }

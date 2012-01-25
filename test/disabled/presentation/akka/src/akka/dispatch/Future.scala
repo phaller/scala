@@ -10,7 +10,6 @@ import akka.actor.{ Actor, Channel }
 import akka.util.Duration
 import akka.japi.{ Procedure, Function => JFunc }
 
-import scala.util.continuations._
 
 import java.util.concurrent.locks.ReentrantLock
 import java.util.concurrent.{ ConcurrentLinkedQueue, TimeUnit, Callable }

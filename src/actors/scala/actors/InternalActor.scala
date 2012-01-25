@@ -7,7 +7,6 @@
 \*                                                                      */
 package scala.actors
 import java.util.TimerTask
-import scala.util.continuations.suspendable
 import scala.util.control.ControlThrowable
 
 private[actors] object InternalActor {
@@ -204,7 +203,7 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
   }
 
   /** See the companion object's `react` method. */
-  override def react(handler: PartialFunction[Any, Unit]): /*Nothing*/ Unit @suspendable = {
+  override def react(handler: PartialFunction[Any, Unit]): Nothing = {
     synchronized {
       if (shouldExit) exit()
     }
@@ -212,7 +211,7 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
   }
 
   /** See the companion object's `reactWithin` method. */
-  override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Unit @suspendable = {
+  override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Nothing = {
     synchronized {
       if (shouldExit) exit()
     }

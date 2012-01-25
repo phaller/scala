@@ -10,7 +10,6 @@
 package scala.actors
 
 import scala.concurrent.SyncVar
-import scala.util.continuations._
 
 /**
  * Provides message send operations that

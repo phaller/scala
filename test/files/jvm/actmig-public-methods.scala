@@ -21,7 +21,7 @@ object Test {
     
     val respActor = actor { 
       loop {
-        reset { react {          
+        react {          
           case (x: String, time: Long) => 
             Thread.sleep(time)            
             reply(x + " after " + time)
@@ -29,7 +29,7 @@ object Test {
             append(str)
             latch.countDown()
           case _ => exit()
-        }}
+        }
       }
     }
     

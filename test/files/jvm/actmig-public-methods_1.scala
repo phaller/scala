@@ -2,7 +2,6 @@
 import scala.collection.mutable.ArrayBuffer
 import scala.actors.Actor._
 import scala.actors._
-import scala.util.continuations._
 import scala.util._
 import java.util.concurrent.{TimeUnit, CountDownLatch}
 
@@ -22,7 +21,7 @@ object Test {
     
     val respActor = ActorSystem.actorOf(actor { 
       loop {
-        reset { react {          
+        react {          
           case (x: String, time: Long) => 
             Thread.sleep(time)         
             reply(x + " after " + time)            
@@ -31,7 +30,7 @@ object Test {
             latch.countDown()
           case x => 
            exit()
-        }}
+        }
       }
     })
     

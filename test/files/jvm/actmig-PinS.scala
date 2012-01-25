@@ -1,7 +1,6 @@
 import scala.actors._
 
 import scala.actors.Actor._
-import scala.util.continuations._
 
 /* PinS, Listing 32.1: A simple actor
  */
@@ -31,7 +30,7 @@ object NameResolver extends Actor {
   import java.net.{InetAddress, UnknownHostException}
 
   def act() {
-    reset { react {
+    react {
       case (name: String, actor: Actor) =>
         actor ! getIp(name)
         act()
@@ -41,7 +40,7 @@ object NameResolver extends Actor {
       case msg =>
         println("Unhandled message: " + msg)
         act()
-    } }
+    }
   }
 
   def getIp(name: String): Option[InetAddress] = {
@@ -89,11 +88,11 @@ object Test extends App {
     self.link(SillyActor)
     SillyActor.start()
 
-    reset { react {
+    react {
       case Exit(SillyActor, _) =>
         self.link(SeriousActor)
         SeriousActor.start()
-        reset { react {
+        react {
           case Exit(SeriousActor, _) =>
             // PinS, page 694
             val seriousActor2 = actor {
@@ -110,16 +109,16 @@ object Test extends App {
             echoActor ! 15
             echoActor ! 'stop
 
-            reset { react {
+            react {
               case Exit(_, _) =>
                 val intActor = makeIntActor()
                 intActor ! "hello"
                 intActor ! math.Pi
                 // only the following send leads to output
                 intActor ! 12
-            } }
-        } }
-    } }
+            }
+        }
+    }
   }
 
 }

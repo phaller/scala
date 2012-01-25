@@ -1,6 +1,5 @@
 package scala.actors
 
-import scala.util.continuations._
 import scala.collection._
 
 object RichActor extends Combinators {
@@ -19,14 +18,13 @@ trait RichActor extends InternalActor {
 
   @volatile
   private[this] var myTimeout: Option[Long] = None
-  
+
   def receiveTimeout: Option[Long] = myTimeout
 
-  
   def receiveTimeout_=(timeout: Option[Long]) = {
     myTimeout = timeout
   }
-  
+
   /**
    * Migration notes:
    *   this method replaces receiveWithin, receive and react methods from Scala Actors.
@@ -99,7 +97,7 @@ trait RichActor extends InternalActor {
   override def forward(msg: Any) = super.forward(msg)
 
   @deprecated("use handle method")
-  override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Unit @suspendable =
+  override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Nothing =
     super.reactWithin(msec)(handler)
 
   @deprecated("use handle method")
@@ -197,23 +195,22 @@ trait RichActor extends InternalActor {
    * Method that models the behavior of Akka actors.  
    */
   private[actors] def internalAct() {
-    
+
     behaviorStack = behaviorStack.push(new PartialFunction[Any, Unit] {
       def isDefinedAt(x: Any) =
         handle.isDefinedAt(x)
-      def apply(x: Any) = handle(x)              
+      def apply(x: Any) = handle(x)
     } orElse {
       case m => unhandled(m)
     })
 
-    reset {
-      while(true) {      
-        if (receiveTimeout.isDefined)
-          reactWithin(receiveTimeout.get)(behaviorStack.top) 
-        else
-          react(behaviorStack.top)
-      }
-    }
+    
+    loop {
+      if (receiveTimeout.isDefined)
+        reactWithin(receiveTimeout.get)(behaviorStack.top)
+      else
+        react(behaviorStack.top)
+    }    
   }
 
   private[actors] override def internalPostStop() = postStop()

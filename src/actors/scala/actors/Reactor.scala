@@ -11,7 +11,6 @@ package scala.actors
 
 import scala.actors.scheduler.{DelegatingScheduler, ExecutorScheduler,
                                ForkJoinScheduler, ThreadPoolConfig}
-import scala.util.continuations._
 import java.util.concurrent.{ThreadPoolExecutor, TimeUnit, LinkedBlockingQueue}
 
 private[actors] object Reactor {
@@ -196,12 +195,10 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
    *
    * @param  handler  a partial function with message patterns and actions
    */
-  protected def react(handler: PartialFunction[Msg, Unit]): /*Nothing*/Unit @suspendable = {
-    shift { (k: Unit => Unit) => {
-      synchronized { drainSendBuffer(mailbox) }
-      searchMailbox(mailbox, handler andThen k, false)
-      throw Actor.suspendException
-    } }
+  protected def react(handler: PartialFunction[Msg, Unit]): Nothing = {
+    synchronized { drainSendBuffer(mailbox) }
+    searchMailbox(mailbox, handler, false)
+    throw Actor.suspendException   
   }
 
   /* This method is guaranteed to be executed from inside

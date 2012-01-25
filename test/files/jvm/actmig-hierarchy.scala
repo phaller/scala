@@ -1,15 +1,14 @@
 import scala.actors._
-import scala.util.continuations._
 
 
 class ReactorActor extends Reactor[String] {
    def act() {
      var cond = true
      loopWhile(cond) {
-       reset{ react {
+       react {
          case x if x == "hello1" => println(x.dropRight(1))
          case "exit" => cond = false
-       }}
+       }
      }
    }
 }
@@ -18,10 +17,10 @@ class ReplyActor extends ReplyReactor {
    def act() {
      var cond = true
      loopWhile(cond) {
-       reset { react {
+       react {
          case "hello" => println("hello")
          case "exit" => cond = false;
-       }}
+       }
      }
    }
 }

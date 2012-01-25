@@ -9,8 +9,6 @@
 
 package scala.actors
 
-import scala.util.continuations._
-
 /**
  * Provides message send operations that
  * may result in a response from the receiver.
@@ -81,9 +79,9 @@ private[actors] trait ReactorCanReply extends CanReply[Any, Any] {
       }
       def respond(k: A => Unit): Unit =
         if (isSet) k(fvalueTyped)
-        else reset { inputChannel.react {
+        else inputChannel.react {
           case any => fvalue = Some(any); k(fvalueTyped)
-        } }
+        }
       def isSet =
         !fvalue.isEmpty
       def inputChannel = ftch

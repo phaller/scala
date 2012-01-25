@@ -9,8 +9,6 @@
 
 package scala.actors
 
-import scala.util.continuations._
-
 /**
  * @author Philipp Haller
  */
@@ -54,7 +52,7 @@ private[actors] class ReactChannel[Msg](receiver: InternalReplyReactor) extends 
    *
    * @param  f    a partial function with message patterns and actions
    */
-  def react(f: PartialFunction[Msg, Unit]): /*Nothing*/Unit @suspendable = {
+  def react(f: PartialFunction[Msg, Unit]): Nothing = {
     val C = this
     receiver.react {
       case SendToReactor(C, msg) if (f.isDefinedAt(msg.asInstanceOf[Msg])) =>
@@ -72,7 +70,7 @@ private[actors] class ReactChannel[Msg](receiver: InternalReplyReactor) extends 
    * @param  msec the time span before timeout
    * @param  f    a partial function with message patterns and actions
    */
-  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Unit @suspendable = {
+  def reactWithin(msec: Long)(f: PartialFunction[Any, Unit]): Nothing = {
     val C = this
     val recvActor = receiver.asInstanceOf[Actor]
     recvActor.reactWithin(msec) {
