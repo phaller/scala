@@ -61,6 +61,8 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
   // guarded by this
   private[actors] val sendBuffer = new MQueue[Msg]("SendBuffer")
 
+  private val stash = new MQueue[Msg]("Stash")
+
   /* Whenever this $actor executes on some thread, `waitingFor` is
    * guaranteed to be equal to `Reactor.waitingForNone`.
    *
@@ -147,6 +149,21 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
 
   def forward(msg: Msg) {
     send(msg, null)
+  }
+
+  /** Adds message to a stash, to be processed later. Stashed messages can be fed back into the $actor's
+   *  mailbox using <code>unstashAll()</code>.
+   *  
+   *  Temporarily stashing away messages that the $actor does not (yet) handle simplifies implementing
+   *  certain messaging protocols.
+   */
+  def stash(msg: Msg): Unit = {
+    stash.append(msg, null)    
+  }
+
+  def unstashAll(): Unit = {
+    mailbox.prepend(stash)
+    stash.clear()
   }
 
   def receiver: Actor = this.asInstanceOf[Actor]
