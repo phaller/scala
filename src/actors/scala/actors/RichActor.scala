@@ -89,21 +89,16 @@ trait RichActor extends InternalActor {
   /*
    * Deprecated part of the API. Used only for smoother transition between scala and akka actors
    */
-
-  @deprecated("use sender ! instead")
+  
   protected[actors] override def reply(msg: Any) = super.reply(msg)
 
-  @deprecated("use self.forward instead")
   override def forward(msg: Any) = super.forward(msg)
 
-  @deprecated("use handle method")
   override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Nothing =
     super.reactWithin(msec)(handler)
-
-  @deprecated("use handle method")
+  
   override def act(): Unit = internalAct()
 
-  @deprecated("use preRestart")
   protected[actors] override def exceptionHandler: PartialFunction[Exception, Unit] = {
     case e =>
     // does not restart the method
@@ -114,53 +109,39 @@ trait RichActor extends InternalActor {
     // TODO (VJ) how to this??? 
   }
 
-  @deprecated("there will be no replacement in akka")
   protected[actors] override def scheduler: IScheduler = super.scheduler
 
-  @deprecated("there will be no replacement in akka")
   protected[actors] override def mailboxSize: Int = super.mailboxSize
 
-  @deprecated("there will be no replacement in akka")
   override def getState: Actor.State.Value = super.getState
 
-  @deprecated("use postStop instead")
   protected[actors] override def exit(reason: AnyRef): Nothing = {
     super.exit(reason)
   }
 
-  @deprecated("use postStop instead")
   protected[actors] override def exit(): Nothing = {
     super.exit()
   }
 
-  @deprecated("use preStart instead")
   override def start(): RichActor = synchronized {
     super.start()
     this
   }
 
-  @deprecated("use akka instead")
   override def link(to: AbstractActor): AbstractActor = super.link(to)
 
-  @deprecated("use akka instead")
   override def link(body: => Unit): Actor = super.link(body)
 
-  @deprecated("use akka instead")
   override def unlink(from: AbstractActor) = super.unlink(from)
 
-  @deprecated("use handle")
   override def ? : Any = super.?
 
-  @deprecated("use ! instead")
-  override def send(msg: Any, replyTo: OutputChannel[Any]) = super.send(msg, replyTo)
-
-  @deprecated("no equivalent in akka.") // TODO (VJ) check if there is something similar in akka 
+  override def send(msg: Any, replyTo: OutputChannel[Any]) = super.send(msg, replyTo) 
+  
   override def receiver: Actor = super.receiver
 
-  @deprecated("use akka strategies instead")
   override def restart: Unit
 
-  @deprecated("use handle instead")
   override def receive[R](f: PartialFunction[Any, R]): R
 
   /*

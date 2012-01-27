@@ -26,8 +26,7 @@ trait CanReply[-T, +R] {
    *
    * @param  msg the message to be sent
    * @return     the reply
-   */
-  @deprecated("use ? on actorRef")
+   */  
   def !?(msg: T): R
 
   /**
@@ -39,8 +38,7 @@ trait CanReply[-T, +R] {
    * @param  msg  the message to be sent
    * @return      <code>None</code> in case of timeout, otherwise
    *              <code>Some(x)</code> where <code>x</code> is the reply
-   */
-  @deprecated("use ? on actorRef") // TODO(VJ) what to do (there is no way to do it with futures)
+   */  
   def !?(msec: Long, msg: T): Option[R]
 
   /**
@@ -49,8 +47,7 @@ trait CanReply[-T, +R] {
    *
    * @param  msg the message to be sent
    * @return     the future
-   */
-  @deprecated("use ? on actorRef")
+   */  
   def !!(msg: T): Future[R]
 
   /**
@@ -63,8 +60,7 @@ trait CanReply[-T, +R] {
    * @param      msg the message to be sent
    * @param  handler the function to be applied to the response
    * @return         the future
-   */
-  @deprecated("use ? on actorRef")
+   */  
   def !![P](msg: T, handler: PartialFunction[R, P]): Future[P]
 
 }
