@@ -6,13 +6,11 @@
 **                          |/                                          **
 \*                                                                      */
 
-
-
 package scala
 
 
 
-import scala.util.{ Timeout, Duration }
+import scala.util.Duration
 
 
 
@@ -27,16 +25,12 @@ package object concurrent {
   /** A global execution environment for executing lightweight tasks.
    */
   lazy val executionContext =
-    new default.ExecutionContextImpl
+    new akka.ExecutionContextImpl(java.util.concurrent.Executors.newCachedThreadPool())
   
   /** A global service for scheduling tasks for execution.
    */
   lazy val scheduler =
     new default.SchedulerImpl
-  
-  private[concurrent] def currentExecutionContext: ThreadLocal[ExecutionContext] = new ThreadLocal[ExecutionContext] {
-    override protected def initialValue = null
-  }
   
   val handledFutureException: PartialFunction[Throwable, Throwable] = {
     case t: Throwable if isFutureThrowable(t) => t
@@ -50,6 +44,24 @@ package object concurrent {
     case _ => true
   }
   
+  private[concurrent] def resolve[T](source: Either[Throwable, T]): Either[Throwable, T] = source match {
+    case Left(t: scala.runtime.NonLocalReturnControl[_]) => Right(t.value.asInstanceOf[T])
+    case Left(t: scala.util.control.ControlThrowable) => Left(new ExecutionException("Boxed ControlThrowable", t))
+    case Left(t: InterruptedException) => Left(new ExecutionException("Boxed InterruptedException", t))
+    case Left(e: Error) => Left(new ExecutionException("Boxed Error", e))
+    case _ => source
+  }
+  
+  private val resolverFunction: PartialFunction[Throwable, Either[Throwable, _]] = {
+    case t: scala.runtime.NonLocalReturnControl[_] => Right(t.value)
+    case t: scala.util.control.ControlThrowable => Left(new ExecutionException("Boxed ControlThrowable", t))
+    case t: InterruptedException => Left(new ExecutionException("Boxed InterruptedException", t))
+    case e: Error => Left(new ExecutionException("Boxed Error", e))
+    case t => Left(t)
+  }
+  
+  private[concurrent] def resolver[T] = resolverFunction.asInstanceOf[PartialFunction[Throwable, Either[Throwable, T]]]
+  
   /* concurrency constructs */
   
   def future[T](body: =>T)(implicit execCtx: ExecutionContext = executionContext): Future[T] =
@@ -57,6 +69,11 @@ package object concurrent {
   
   def promise[T]()(implicit execCtx: ExecutionContext = executionContext): Promise[T] =
     execCtx promise
+  
+  /** Wraps a block of code into an awaitable object. */
+  def body2awaitable[T](body: =>T) = new Awaitable[T] {
+    def await(atMost: Duration)(implicit cb: CanAwait) = body
+  }
   
   /** Used to block on a piece of code which potentially blocks.
    *  
@@ -67,11 +84,10 @@ package object concurrent {
    *  - InterruptedException - in the case that a wait within the blockable object was interrupted
    *  - TimeoutException - in the case that the blockable object timed out
    */
-  def await[T](timeout: Timeout)(body: =>T): T = await(timeout, new Awaitable[T] {
-    def await(timeout: Timeout)(implicit cb: CanBlock) = body
-  })
+  def blocking[T](atMost: Duration)(body: =>T)(implicit execCtx: ExecutionContext): T =
+    executionContext.blocking(atMost)(body)
   
-  /** Blocks on a blockable object.
+  /** Blocks on an awaitable object.
    *  
    *  @param awaitable    An object with a `block` method which runs potentially blocking or long running calls.
    *  
@@ -80,12 +96,37 @@ package object concurrent {
    *  - InterruptedException - in the case that a wait within the blockable object was interrupted
    *  - TimeoutException - in the case that the blockable object timed out
    */
-  def await[T](timeout: Timeout, awaitable: Awaitable[T]): T = {
-    currentExecutionContext.get match {
-      case null => awaitable.await(timeout)(null) // outside - TODO - fix timeout case
-      case x => x.blockingCall(timeout, awaitable) // inside an execution context thread
+  def blocking[T](awaitable: Awaitable[T], atMost: Duration)(implicit execCtx: ExecutionContext = executionContext): T =
+    executionContext.blocking(awaitable, atMost)
+  
+  object await {
+    def ready[T](atMost: Duration)(awaitable: Awaitable[T])(implicit execCtx: ExecutionContext = executionContext): Awaitable[T] = {
+      try blocking(awaitable, atMost)
+      catch { case _ => }
+      awaitable
+    }
+    
+    def result[T](atMost: Duration)(awaitable: Awaitable[T])(implicit execCtx: ExecutionContext = executionContext): T = {
+      blocking(awaitable, atMost)
     }
   }
+  
+  /** Importing this object allows using some concurrency primitives
+   *  on futures and promises that can yield nondeterministic programs.
+   *  
+   *  While program determinism is broken when using these primitives,
+   *  some programs cannot be written without them (e.g. multiple client threads
+   *  cannot send requests to a server thread through regular promises and futures).
+   */
+  object nondeterministic {
+  }
+  
+  final class DurationOps private[concurrent] (x: Int) {
+    // TODO ADD OTHERS
+    def ns = util.Duration.fromNanos(0)
+  }
+  
+  @inline implicit final def int2durationops(x: Int) = new DurationOps(x)
   
 }
 
@@ -103,4 +144,14 @@ package concurrent {
     def this(origin: Future[_]) = this(origin, "Future timed out.")
   }
   
+  /** Evidence that the program can be nondeterministic.
+   *  
+   *  Programs in which such an evidence is available in scope
+   *  can contain calls to methods which yield nondeterministic
+   *  programs.
+   */
+  sealed trait NonDeterministic
+  
 }
+
+
