@@ -20,6 +20,7 @@ import java.util.{TimerTask}
  *
  * @author Philipp Haller
  */
+@deprecated("Scala Actors are beeing removed from the standard library. Please refer to the migration guide.", "2.10") 
 object Actor extends Combinators {
 
   /** State of an actor.
@@ -435,6 +436,7 @@ object Actor extends Combinators {
  * @define actor actor
  * @define channel actor's mailbox
  */
+@deprecated("Scala Actors are beeing removed from the standard library. Please refer to the migration guide.", "2.10")
 @SerialVersionUID(-781154067877019505L)
 trait Actor extends InternalActor with ReplyReactor {
        

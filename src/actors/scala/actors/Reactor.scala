@@ -52,6 +52,7 @@ private[actors] object Reactor {
  *
  * @define actor reactor
  */
+@deprecated("Scala Actors are beeing removed from the standard library. Please refer to the migration guide.", "2.10")
 trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
 
   /* The $actor's mailbox. */

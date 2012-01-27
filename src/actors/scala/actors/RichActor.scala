@@ -8,6 +8,7 @@ object RichActor extends Combinators {
   }
 }
 
+@deprecated("Scala Actors are beeing removed from the standard library. Please refer to the migration guide.", "2.10")
 trait RichActor extends InternalActor {
   type Receive = PartialFunction[Any, Unit]
 
