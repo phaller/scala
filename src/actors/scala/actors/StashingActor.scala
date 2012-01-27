@@ -2,17 +2,17 @@ package scala.actors
 
 import scala.collection._
 
-object RichActor extends Combinators {
+object StashingActor extends Combinators {
   implicit def mkBody[A](body: => A) = new InternalActor.Body[A] {
     def andThen[B](other: => B): Unit = Actor.rawSelf.seq(body, other)
   }
 }
 
 @deprecated("Scala Actors are beeing removed from the standard library. Please refer to the migration guide.", "2.10")
-trait RichActor extends InternalActor {
+trait StashingActor extends InternalActor {
   type Receive = PartialFunction[Any, Unit]
 
-  // checks if RichActor is created within the actorOf block
+  // checks if StashingActor is created within the actorOf block
   creationCheck;
 
   def self: ActorRef = new InternalActorRef(this)
@@ -124,7 +124,7 @@ trait RichActor extends InternalActor {
     super.exit()
   }
 
-  override def start(): RichActor = synchronized {
+  override def start(): StashingActor = synchronized {
     super.start()
     this
   }
@@ -152,14 +152,14 @@ trait RichActor extends InternalActor {
   private[actors] var behaviorStack = immutable.Stack[PartialFunction[Any, Unit]]()
 
   /*
-   * Checks that RichActor can be created only by MigrationSystem.actorOf method.
+   * Checks that StashingActor can be created only by MigrationSystem.actorOf method.
    */
   private[this] def creationCheck = {
 
     // creation check (see ActorRef)
     val context = MigrationSystem.contextStack.get
     if (context.isEmpty)
-      throw new RuntimeException("In order to create RichActor one must use actorOf.")
+      throw new RuntimeException("In order to create StashingActor one must use actorOf.")
     else {
       if (!context.head)
         throw new RuntimeException("Only one actor can be created per actorOf call.")

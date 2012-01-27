@@ -1,10 +1,10 @@
 import scala.actors.MigrationSystem._
 import scala.actors.Actor._
-import scala.actors.{Actor, RichActor, ActorRef}
+import scala.actors.{Actor, StashingActor, ActorRef}
 import java.util.concurrent.{TimeUnit, CountDownLatch}
 import scala.collection.mutable.ArrayBuffer
 
-class TestRichActor extends RichActor {
+class TestStashingActor extends StashingActor {
   
   def handle = { case v: Int => Test.append(v); Test.latch.countDown() }
 
@@ -30,7 +30,7 @@ object Test {
     a1 ! 100
  
     // simple instantiation
-    val a2 = actorOf(new TestRichActor) 
+    val a2 = actorOf(new TestStashingActor) 
     a2.start()
     a2 ! 200
     
@@ -42,7 +42,7 @@ object Test {
     a3 ! 300 
      
     // using the manifest    
-    val a4 = actorOf[TestRichActor].start()
+    val a4 = actorOf[TestStashingActor].start()
     a4 ! 400
 
     toStop += a4
@@ -50,7 +50,7 @@ object Test {
     
     // creation without actorOf 
     try {
-     val a3 = new TestRichActor
+     val a3 = new TestStashingActor
      a3 ! -1
     } catch {
       case e => println("OK error: " + e)
@@ -59,8 +59,8 @@ object Test {
     // actorOf double creation
     try {
      val a3 = actorOf {
-       new TestRichActor
-       new TestRichActor
+       new TestStashingActor
+       new TestStashingActor
      }
      a3 ! -1
     } catch {
@@ -70,8 +70,8 @@ object Test {
     // actorOf nesting
     try {
      val a5 = actorOf {
-       val a6 = actorOf[TestRichActor]       
-       new TestRichActor
+       val a6 = actorOf[TestStashingActor]       
+       new TestStashingActor
      }
      a5.start()
      a5 ! 500
