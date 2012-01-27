@@ -29,5 +29,5 @@ object Timeout {
   implicit def durationToTimeout(duration: Duration) = new Timeout(duration)
   implicit def intToTimeout(timeout: Int) = new Timeout(timeout)
   implicit def longToTimeout(timeout: Long) = new Timeout(timeout)
-  //implicit def defaultTimeout(implicit system: ActorSystem) = system.settings.ActorTimeout (have to introduce this in ActorSystem)
+  //implicit def defaultTimeout(implicit system: MigrationSystem) = system.settings.ActorTimeout (have to introduce this in MigrationSystem)
 }

@@ -152,19 +152,19 @@ trait RichActor extends InternalActor {
   private[actors] var behaviorStack = immutable.Stack[PartialFunction[Any, Unit]]()
 
   /*
-   * Checks that RichActor can be created only by ActorSystem.actorOf method.
+   * Checks that RichActor can be created only by MigrationSystem.actorOf method.
    */
   private[this] def creationCheck = {
 
     // creation check (see ActorRef)
-    val context = ActorSystem.contextStack.get
+    val context = MigrationSystem.contextStack.get
     if (context.isEmpty)
       throw new RuntimeException("In order to create RichActor one must use actorOf.")
     else {
       if (!context.head)
         throw new RuntimeException("Only one actor can be created per actorOf call.")
       else
-        ActorSystem.contextStack.set(context.push(false))
+        MigrationSystem.contextStack.set(context.push(false))
     }
 
   }

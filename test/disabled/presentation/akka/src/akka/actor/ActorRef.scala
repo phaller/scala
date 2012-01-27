@@ -1122,7 +1122,7 @@ class LocalActorRef private[akka] (
  *
  * @author <a href="http://jonasboner.com">Jonas Bon&#233;r</a>
  */
-object RemoteActorSystemMessage {
+object RemoteMigrationSystemMessage {
   val Stop = "RemoteActorRef:stop".intern
 }
 
@@ -1179,7 +1179,7 @@ private[akka] case class RemoteActorRef private[akka] (
   def stop: Unit = synchronized {
     if (_status == ActorRefInternals.RUNNING) {
       _status = ActorRefInternals.SHUTDOWN
-      postMessageToMailbox(RemoteActorSystemMessage.Stop, None)
+      postMessageToMailbox(RemoteMigrationSystemMessage.Stop, None)
     }
   }
 

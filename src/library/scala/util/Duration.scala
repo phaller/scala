@@ -7,7 +7,7 @@ package scala.util
 import java.util.concurrent.TimeUnit
 import TimeUnit._
 import java.lang.{ Long ⇒ JLong, Double ⇒ JDouble }
-//import akka.actor.ActorSystem (commented methods)
+//import akka.actor.MigrationSystem (commented methods)
 
 class TimerException(message: String) extends RuntimeException(message)
 
@@ -278,7 +278,7 @@ abstract class Duration extends Serializable {
   def /(other: Duration): Double
   def unary_- : Duration
   def finite_? : Boolean
-//  def dilated(implicit system: ActorSystem): Duration = this * system.settings.TestTimeFactor
+//  def dilated(implicit system: MigrationSystem): Duration = this * system.settings.TestTimeFactor
   def min(other: Duration): Duration = if (this < other) this else other
   def max(other: Duration): Duration = if (this > other) this else other
   def sleep(): Unit = Thread.sleep(toMillis)

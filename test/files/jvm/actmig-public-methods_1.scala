@@ -19,7 +19,7 @@ object Test {
 
   def main(args: Array[String]) = {
     
-    val respActor = ActorSystem.actorOf(actor { 
+    val respActor = MigrationSystem.actorOf(actor { 
       loop {
         react {          
           case (x: String, time: Long) => 

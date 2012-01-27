@@ -3,7 +3,7 @@ import scala.actors._
 import scala.actors.Actor._
 
 object SillyActor {
-  val ref = ActorSystem.actorOf[SillyActor]  
+  val ref = MigrationSystem.actorOf[SillyActor]  
 }
 
 /* PinS, Listing 32.1: A simple actor
@@ -19,7 +19,7 @@ class SillyActor extends Actor {
 }
 
 object SeriousActor {
-  val ref = ActorSystem.actorOf[SillyActor]  
+  val ref = MigrationSystem.actorOf[SillyActor]  
 }
 
 class SeriousActor extends Actor {
