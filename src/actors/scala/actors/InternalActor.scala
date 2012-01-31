@@ -319,7 +319,25 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
     this.link(to.localActor)
     to
   }
-
+  
+  /**
+   *  Unidirectional linking. For migration purposes only
+   */
+  private[actors] def watch(subject: ActorRef): ActorRef = {
+    assert(Actor.self(scheduler) == this, "link called on actor different from self")
+    this linkTo subject.localActor
+    subject
+  }
+  
+  /**
+   *  Unidirectional linking. For migration purposes only
+   */
+  private[actors] def unwatch(subject: ActorRef): ActorRef = {
+    assert(Actor.self(scheduler) == this, "link called on actor different from self")
+    this unlinkFrom subject.localActor
+    subject
+  } 
+    
   /**
    * Links <code>self</code> to the actor defined by <code>body</code>.
    *
@@ -458,10 +476,10 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
 
   private[actors] def internalPostStop() = {}
 
-  private[actors] def stop(reason: AnyRef): Unit = {
+  private[actors] def stop(reason: AnyRef): Unit = {    
     synchronized {
       shouldExit = true
-      exitReason = reason
+      exitReason = reason      
       // resume this Actor in a way that
       // causes it to exit
       // (because shouldExit == true)

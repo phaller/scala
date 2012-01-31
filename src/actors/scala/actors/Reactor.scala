@@ -157,11 +157,11 @@ trait Reactor[Msg >: Null] extends OutputChannel[Msg] with Combinators {
    *  Temporarily stashing away messages that the $actor does not (yet) handle simplifies implementing
    *  certain messaging protocols.
    */
-  def stash(msg: Msg): Unit = {
+  private[actors] def stash(msg: Msg): Unit = {
     stash.append(msg, null)    
   }
 
-  def unstashAll(): Unit = {
+  private[actors] def unstashAll(): Unit = {
     mailbox.prepend(stash)
     stash.clear()
   }

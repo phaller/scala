@@ -9,7 +9,7 @@ object SillyActor extends Actor {
     for (i <- 1 to 5) {
       println("I'm acting!")
       //Thread.sleep(1000)
-      Thread.sleep(100)
+      Thread.sleep(10)
     }
   }
 }
@@ -19,7 +19,7 @@ object SeriousActor extends Actor {
     for (i <- 1 to 5) {
       println("To be or not to be.")
       //Thread.sleep(1000)
-      Thread.sleep(100)
+      Thread.sleep(10)
     }
   }
 }
@@ -77,11 +77,6 @@ object Test extends App {
     }
   }
 
-  /* PinS, page 697
-   */
-  self ! "hello"
-  println(self.receive { case x => x })
-  println(self.receiveWithin(100) { case x => x })
 
   actor {
     self.trapExit = true
@@ -99,10 +94,10 @@ object Test extends App {
               for (i <- 1 to 5)
                 println("That is the question.")
               //Thread.sleep(1000)
-              Thread.sleep(100)
+              Thread.sleep(10)
             }
 
-            Thread.sleep(800)
+            Thread.sleep(80)
             val echoActor = makeEchoActor()
             self.link(echoActor)
             echoActor ! "hi there"
@@ -120,5 +115,4 @@ object Test extends App {
         }
     }
   }
-
 }

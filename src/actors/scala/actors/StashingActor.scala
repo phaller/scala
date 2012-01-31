@@ -15,8 +15,12 @@ trait StashingActor extends InternalActor {
   // checks if StashingActor is created within the actorOf block
   creationCheck;
 
-  def self: ActorRef = new InternalActorRef(this)
-
+  private[actors] val ref = new InternalActorRef(this)
+  
+  val self: ActorRef = ref
+  
+  protected[this] val context: ActorContext = new ActorContext(ref)
+  
   @volatile
   private[this] var myTimeout: Option[Long] = None
 
@@ -25,7 +29,9 @@ trait StashingActor extends InternalActor {
   def receiveTimeout_=(timeout: Option[Long]) = {
     myTimeout = timeout
   }
-
+  
+  
+  
   /**
    * Migration notes:
    *   this method replaces receiveWithin, receive and react methods from Scala Actors.
@@ -62,7 +68,7 @@ trait StashingActor extends InternalActor {
    */
   def become(behavior: Receive, discardOld: Boolean = true) {
     if (discardOld) unbecome()
-    behaviorStack.push()
+    behaviorStack = behaviorStack.push(wrapWithSystemMessageHandling(behavior)) 
   }
 
   /**
@@ -81,16 +87,17 @@ trait StashingActor extends InternalActor {
    * by default it does: EventHandler.warning(self, message)
    */
   def unhandled(message: Any) {
+    println("unhandeld")
     message match {
       case _ => throw new UnhandledMessageException(message, self)
     }
   }
 
   protected def sender: ActorRef = throw new UnsupportedOperationException("") // TODO (VJ) fix the output channel
+  
   /*
    * Deprecated part of the API. Used only for smoother transition between scala and akka actors
-   */
-  
+   */  
   protected[actors] override def reply(msg: Any) = super.reply(msg)
 
   override def forward(msg: Any) = super.forward(msg)
@@ -100,15 +107,8 @@ trait StashingActor extends InternalActor {
   
   override def act(): Unit = internalAct()
 
-  protected[actors] override def exceptionHandler: PartialFunction[Exception, Unit] = {
-    case e =>
-    // does not restart the method
-    //   restart
-    //   postRestart()      
-    // else 
-    //   ????       
-    // TODO (VJ) how to this??? 
-  }
+  protected[actors] override def exceptionHandler: PartialFunction[Exception, Unit] =
+    super.exceptionHandler
 
   protected[actors] override def scheduler: IScheduler = super.scheduler
 
@@ -130,7 +130,9 @@ trait StashingActor extends InternalActor {
   }
 
   override def link(to: AbstractActor): AbstractActor = super.link(to)
-
+  
+  override def link(to: ActorRef): ActorRef = super.link(to)
+  
   override def link(body: => Unit): Actor = super.link(body)
 
   override def unlink(from: AbstractActor) = super.unlink(from)
@@ -173,31 +175,84 @@ trait StashingActor extends InternalActor {
     preStart()
   }
 
+  /** Adds message to a stash, to be processed later. Stashed messages can be fed back into the $actor's
+   *  mailbox using <code>unstashAll()</code>.
+   *  
+   *  Temporarily stashing away messages that the $actor does not (yet) handle simplifies implementing
+   *  certain messaging protocols.
+   */
+  final override def stash(msg: Any): Unit = super.stash(msg)         
+
+  /** Returns the whole stash back to the mailbox of an actor.
+   * 
+   */
+  final override def unstashAll(): Unit = super.unstashAll()    
+  
+  /**
+   * Wraps any partial function with Exit message handling.
+   */
+  private[actors] def wrapWithSystemMessageHandling(pf: PartialFunction[Any, Unit]): PartialFunction[Any, Unit] = {
+    // TODO (VJ) access the queue and put the message in the beginning 
+    val exitHandler: PartialFunction[Any, Unit] = {case Exit(from, reason) => self ! Terminated(new InternalActorRef(from.asInstanceOf[InternalActor]))}
+       
+    exitHandler orElse pf orElse {        
+      case m => unhandled(m)
+    }   
+  }
+  
   /*
    * Method that models the behavior of Akka actors.  
    */
   private[actors] def internalAct() {
-
-    behaviorStack = behaviorStack.push(new PartialFunction[Any, Unit] {
-      def isDefinedAt(x: Any) =
-        handle.isDefinedAt(x)
-      def apply(x: Any) = handle(x)
-    } orElse {
-      case m => unhandled(m)
-    })
-
-    
-    loop {
-      if (receiveTimeout.isDefined)
-        reactWithin(receiveTimeout.get)(behaviorStack.top)
-      else
-        react(behaviorStack.top)
-    }    
+    trapExit = true
+    behaviorStack = behaviorStack.push(wrapWithSystemMessageHandling(handle))    
+    loop {            
+        if (receiveTimeout.isDefined)          
+          reactWithin(receiveTimeout.get)(behaviorStack.top)
+        else
+          react(behaviorStack.top)
+    }  
   }
 
   private[actors] override def internalPostStop() = postStop()
 
   lazy val ReceiveTimeout = TIMEOUT
+  
+  /**
+   * Used to simulate Akka context behavior. Should be used only for migration purposes.
+   */
+  protected[actors] class ActorContext(val ref: InternalActorRef) {
+    
+    /**
+    * Shuts down the actor its dispatcher and message queue.
+    */
+    def stop(subject: ActorRef): Nothing = if (subject != ref) 
+      throw new RuntimeException("Illegal use!! In migration code only stoping of self is allowed.") 
+    else
+      // TODO (VJ) until we fix 
+      ref.localActor.exit()
+//      ref.stop()
+    
+    /**
+    * Registers this actor as a Monitor for the provided ActorRef.
+    * @return the provided ActorRef
+    */
+    def watch(subject: ActorRef): ActorRef = {
+      ref.localActor.link(subject)
+      //ref.localActor.watch(subject)
+      subject
+    }
+
+     /**
+     * Unregisters this actor as Monitor for the provided ActorRef.
+     * @return the provided ActorRef
+     */
+     def unwatch(subject: ActorRef): ActorRef = {
+       ref.localActor.unlink(subject)
+//       ref.localActor unwatch subject
+       subject
+     }    
+  }
 }
 
 /**
@@ -214,3 +269,5 @@ case class UnhandledMessageException(msg: Any, ref: ActorRef = null) extends Exc
 
   override def fillInStackTrace() = this //Don't waste cycles generating stack trace
 }
+
+case class Terminated(actor: ActorRef)

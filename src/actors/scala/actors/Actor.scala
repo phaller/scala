@@ -65,10 +65,10 @@ object Actor extends Combinators {
    *
    * @return returns the currently executing actor.
    */
-  def self: Actor = self(Scheduler)
+  def self: Actor = self(Scheduler).asInstanceOf[Actor]
 
-  private[actors] def self(sched: IScheduler): Actor =
-    rawSelf(sched).asInstanceOf[Actor]
+  private[actors] def self(sched: IScheduler): InternalActor =
+    rawSelf(sched).asInstanceOf[InternalActor]
 
   private[actors] def rawSelf: InternalReplyReactor =
     rawSelf(Scheduler)

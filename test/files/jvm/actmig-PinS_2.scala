@@ -1,4 +1,4 @@
-import scala.actors._
+import scala.actors.{MigrationSystem, StashingActor, ActorRef, Exit}
 
 
 object SillyActor {
@@ -7,8 +7,11 @@ object SillyActor {
 
 /* PinS, Listing 32.1: A simple actor
  */
-class SillyActor extends Actor {
-  def act() {
+class SillyActor extends StashingActor {
+  // TODO write down
+  def handle = {case _ => println("Nop")}
+  // TODO write down
+  override def act() {
     for (i <- 1 to 5) {
       println("I'm acting!")     
       Thread.sleep(10)
@@ -20,8 +23,9 @@ object SeriousActor {
   val ref = MigrationSystem.actorOf[SeriousActor]  
 }
 
-class SeriousActor extends Actor {
-  def act() {
+class SeriousActor extends StashingActor {
+  def handle = {case _ => println("Nop")}
+  override def act() {
     for (i <- 1 to 5) {
       println("To be or not to be.")
       //Thread.sleep(1000)
@@ -32,12 +36,18 @@ class SeriousActor extends Actor {
 
 /* PinS, Listing 32.3: An actor that calls react
  */
-object NameResolver extends Actor {
+object NameResolver {
+  val ref = MigrationSystem.actorOf[NameResolver]
+}
+
+class NameResolver extends StashingActor {
   import java.net.{InetAddress, UnknownHostException}
 
-  def act() {
+  def handle = {case _ => println("Nop")}
+
+  override def act() {
     react {
-      case (name: String, actor: Actor) =>
+      case (name: String, actor: ActorRef) =>
         actor ! getIp(name)
         act()
       case "EXIT" =>
@@ -63,8 +73,11 @@ object Test extends App {
 
   /* PinS, Listing 32.2: An actor that calls receive
    */
-  def makeEchoActor(): ActorRef = MigrationSystem.actorOf(new Actor {
-    def act() {
+  def makeEchoActor(): ActorRef = MigrationSystem.actorOf(new StashingActor {
+    
+    def handle = {case _ => println("Nop")}
+
+    override def act() {
       while (true) {
 	receive {
 	  case 'stop =>
@@ -78,8 +91,11 @@ object Test extends App {
 
   /* PinS, page 696
    */
-  def makeIntActor(): ActorRef = MigrationSystem.actorOf(new Actor {
-    def act() {
+  def makeIntActor(): ActorRef = MigrationSystem.actorOf(new StashingActor {
+
+    def handle = {case _ => println("Nop")}
+
+    override def act() {
      receive {
 	  case x: Int => // I only want Ints
 	  println("Got an Int: " + x)
@@ -87,9 +103,12 @@ object Test extends App {
     }
   }).start()
 
+  // TODO test the name resolver with pattern matching
+  MigrationSystem.actorOf(new StashingActor {
+    
+    def handle = {case _ => println("Nop")} 
 
-  MigrationSystem.actorOf(new Actor {
-    def act() {
+    override def act() {
       trapExit = true
       link(SillyActor.ref)
       SillyActor.ref.start()      
@@ -100,8 +119,11 @@ object Test extends App {
           react {
             case Exit(_: SeriousActor, _) =>              
               // PinS, page 694
-              val seriousActor2 = MigrationSystem.actorOf{new Actor {
-                def act() {
+              val seriousActor2 = MigrationSystem.actorOf{new StashingActor {
+
+                def handle = {case _ => println("Nop")}
+
+                override def act() {
                   for (i <- 1 to 5) {
                     println("That is the question.")
                     //Thread.sleep(1000)

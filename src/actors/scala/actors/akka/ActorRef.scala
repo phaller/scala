@@ -46,7 +46,9 @@ trait ActorRef  {
    */
   def ?(message: Any)(implicit timeout: Timeout): Future[Any]
 
-
+  /**
+   * Shuts down the actor its dispatcher and message queue.
+   */
   def start(): ActorRef
 
   /**
@@ -122,6 +124,10 @@ private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
    */
   def forward(message: Any) = actor.forward(message)
 
+  override def equals(that: Any) = 
+    that.isInstanceOf[ReactorRef] && that.asInstanceOf[ReactorRef].actor == this.actor
+  
+  
   private[actors] override def localActor: AbstractActor = 
     throw new UnsupportedOperationException("Reactor does not have an instance of the actor")
   
@@ -152,10 +158,9 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
 
 private[actors] final class InternalActorRef(override val actor: InternalActor) extends ReplyActorRef(actor) {
   
-  // TODO (VJ) this does not work
   override def stop(): Unit = actor.stop('normal)
   
-  private[actors] override def localActor: AbstractActor = this.actor
+  private[actors] override def localActor: InternalActor = this.actor
 }
 
 /**

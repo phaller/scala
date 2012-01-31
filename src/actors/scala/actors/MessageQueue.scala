@@ -52,8 +52,10 @@ private[actors] class MQueue[Msg >: Null](protected val label: String) {
   }
 
   def prepend(other: MQueue[Msg]) {
-    other.last.next = first
-    first = other.first
+    if (!other.isEmpty) {
+      other.last.next = first
+      first = other.first
+    }
   }
 
   def clear() {
