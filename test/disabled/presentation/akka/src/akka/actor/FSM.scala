@@ -3,6 +3,7 @@
  */
 package akka.actor
 
+import scala.util.Duration
 import akka.util._
 import akka.event.EventHandler
 

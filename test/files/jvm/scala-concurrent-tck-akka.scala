@@ -7,7 +7,7 @@ import akka.dispatch.{
 import akka.dispatch.Await.{result => await}
 
 // Duration required for await
-import akka.util.Duration
+import scala.util.Duration
 import java.util.concurrent.TimeUnit
 import TimeUnit._
 

@@ -6,7 +6,7 @@ import scala.collection.mutable.ArrayBuffer
 
 class TestStashingActor extends StashingActor {
   
-  def handle = { case v: Int => Test.append(v); Test.latch.countDown() }
+  def receive = { case v: Int => Test.append(v); Test.latch.countDown() }
 
 }
 

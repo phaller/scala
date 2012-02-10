@@ -6,7 +6,7 @@ package akka.dispatch
 
 import akka.actor.{ Actor, ActorRef }
 import akka.config.Config.config
-import akka.util.Duration
+import scala.util.Duration
 
 import java.util.Queue
 import java.util.concurrent.{ ConcurrentLinkedQueue, BlockingQueue, TimeUnit, LinkedBlockingQueue }

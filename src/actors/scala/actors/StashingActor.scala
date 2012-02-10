@@ -36,7 +36,7 @@ trait StashingActor extends InternalActor {
    * Migration notes:
    *   this method replaces receiveWithin, receive and react methods from Scala Actors.
    */
-  def handle: Receive
+  def receive: Receive
 
   /**
    * User overridable callback.
@@ -105,45 +105,12 @@ trait StashingActor extends InternalActor {
   override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Nothing =
     super.reactWithin(msec)(handler)
   
-  override def act(): Unit = internalAct()
+  override def act(): Unit = internalAct()    
 
-  protected[actors] override def exceptionHandler: PartialFunction[Exception, Unit] =
-    super.exceptionHandler
-
-  protected[actors] override def scheduler: IScheduler = super.scheduler
-
-  protected[actors] override def mailboxSize: Int = super.mailboxSize
-
-  override def getState: Actor.State.Value = super.getState
-
-  protected[actors] override def exit(reason: AnyRef): Nothing = {
-    super.exit(reason)
-  }
-
-  protected[actors] override def exit(): Nothing = {
-    super.exit()
-  }
-
-  override def start(): StashingActor = synchronized {
+  override def start(): StashingActor = {
     super.start()
     this
-  }
-
-  override def link(to: AbstractActor): AbstractActor = super.link(to)
-  
-  override def link(to: ActorRef): ActorRef = super.link(to)
-  
-  override def link(body: => Unit): Actor = super.link(body)
-
-  override def unlink(from: AbstractActor) = super.unlink(from)
-
-  override def ? : Any = super.?
-
-  override def send(msg: Any, replyTo: OutputChannel[Any]) = super.send(msg, replyTo) 
-  
-  override def receiver: Actor = super.receiver
-
-  override def restart: Unit
+  }    
 
   override def receive[R](f: PartialFunction[Any, R]): R
 
@@ -191,13 +158,23 @@ trait StashingActor extends InternalActor {
   /**
    * Wraps any partial function with Exit message handling.
    */
-  private[actors] def wrapWithSystemMessageHandling(pf: PartialFunction[Any, Unit]): PartialFunction[Any, Unit] = {
-    // TODO (VJ) access the queue and put the message in the beginning 
-    val exitHandler: PartialFunction[Any, Unit] = {case Exit(from, reason) => self ! Terminated(new InternalActorRef(from.asInstanceOf[InternalActor]))}
-       
-    exitHandler orElse pf orElse {        
+  private[actors] def wrapWithSystemMessageHandling(pf: PartialFunction[Any, Unit]): PartialFunction[Any, Unit] = {          
+    
+    def swapExitHandler(pf: PartialFunction[Any, Unit]) = new PartialFunction[Any, Unit] {
+      def swapExit(v: Any) = v match {
+          case Exit(from, reason) =>
+            Terminated(new InternalActorRef(from.asInstanceOf[InternalActor]))
+          case v => v
+      }
+      
+      def isDefinedAt(v: Any) = pf.isDefinedAt(swapExit(v))
+      
+      def apply(v: Any) = pf(swapExit(v))
+    }
+    
+     swapExitHandler(pf orElse {
       case m => unhandled(m)
-    }   
+    })
   }
   
   /*
@@ -205,7 +182,7 @@ trait StashingActor extends InternalActor {
    */
   private[actors] def internalAct() {
     trapExit = true
-    behaviorStack = behaviorStack.push(wrapWithSystemMessageHandling(handle))    
+    behaviorStack = behaviorStack.push(wrapWithSystemMessageHandling(receive))    
     loop {            
         if (receiveTimeout.isDefined)          
           reactWithin(receiveTimeout.get)(behaviorStack.top)
@@ -227,11 +204,9 @@ trait StashingActor extends InternalActor {
     * Shuts down the actor its dispatcher and message queue.
     */
     def stop(subject: ActorRef): Nothing = if (subject != ref) 
-      throw new RuntimeException("Illegal use!! In migration code only stoping of self is allowed.") 
-    else
-      // TODO (VJ) until we fix 
+      throw new RuntimeException("Only stoping of self is allowed during migration.") 
+    else     
       ref.localActor.exit()
-//      ref.stop()
     
     /**
     * Registers this actor as a Monitor for the provided ActorRef.
@@ -239,6 +214,7 @@ trait StashingActor extends InternalActor {
     */
     def watch(subject: ActorRef): ActorRef = {
       ref.localActor.link(subject)
+      // TODO (VJ) change to unidirectional 
       //ref.localActor.watch(subject)
       subject
     }
@@ -249,7 +225,8 @@ trait StashingActor extends InternalActor {
      */
      def unwatch(subject: ActorRef): ActorRef = {
        ref.localActor.unlink(subject)
-//       ref.localActor unwatch subject
+       // TODO (VJ) change to unidirectional
+       // ref.localActor unwatch subject
        subject
      }    
   }

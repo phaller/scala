@@ -9,7 +9,7 @@ import java.util.concurrent._
 import atomic.{ AtomicLong, AtomicInteger }
 import ThreadPoolExecutor.CallerRunsPolicy
 
-import akka.util.Duration
+import scala.util.Duration
 import akka.event.EventHandler
 
 object ThreadPoolConfig {

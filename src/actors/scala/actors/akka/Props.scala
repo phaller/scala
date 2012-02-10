@@ -52,7 +52,7 @@ object Props {
 
   // TODO (VJ) how can you create actor
   def apply(faultHandler: FaultHandlingStrategy): Props =
-    apply(new StashingActor { def handle = { case _ ⇒ }}).withFaultHandler(faultHandler)
+    apply(new StashingActor { def receive = { case _ ⇒ }}).withFaultHandler(faultHandler)
     
   /**
    * Returns a Props that has default values except for "creator" which will be a function that creates an instance

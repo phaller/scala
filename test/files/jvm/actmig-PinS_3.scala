@@ -9,7 +9,7 @@ object SillyActor {
 
 // TODO (VJ) place in the guide
 class SillyActor extends StashingActor {
-  def handle = {case _ => println("Why are you not dead"); context.stop(self)}
+  def receive = {case _ => println("Why are you not dead"); context.stop(self)}
   
   override def preStart() {
     for (i <- 1 to 5) {
@@ -29,7 +29,7 @@ object SeriousActor {
 }
 
 class SeriousActor extends StashingActor {
-  def handle = {case _ => println("Nop")}
+  def receive = {case _ => println("Nop")}
   override def preStart() {
     for (i <- 1 to 5) {
       println("To be or not to be.")
@@ -50,7 +50,7 @@ object NameResolver {
 class NameResolver extends StashingActor {
   import java.net.{InetAddress, UnknownHostException}
 
-  def handle = {
+  def receive = {
       case (name: String, actor: ActorRef) =>
         actor ! getIp(name)
       case "EXIT" =>
@@ -76,7 +76,7 @@ object Test extends App {
    */
   def makeEchoActor(): ActorRef = MigrationSystem.actorOf(new StashingActor {
     
-    def handle = { // how to handle receive
+    def receive = { // how to handle receive
 	  case 'stop =>
 	    context.stop(self)
 	  case msg =>
@@ -88,7 +88,7 @@ object Test extends App {
    */
   def makeIntActor(): ActorRef = MigrationSystem.actorOf(new StashingActor {
 
-    def handle = {
+    def receive = {
         case x: Int => // I only want Ints
 	  unstashAll()
 	  println("Got an Int: " + x)
@@ -108,7 +108,7 @@ object Test extends App {
       SillyActor.ref.start()
     }
 
-    def handle = { 
+    def receive = { 
       case Terminated(`silly`) =>          
 	unstashAll()
         context.watch(SeriousActor.ref)
@@ -118,7 +118,7 @@ object Test extends App {
               // PinS, page 694
               val seriousActor2 = MigrationSystem.actorOf{new StashingActor {
 
-                def handle = {case _ => context.stop(self)}
+                def receive = {case _ => context.stop(self)}
 
                 override def preStart() = {
 		  for (i <- 1 to 5) {

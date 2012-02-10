@@ -7,7 +7,7 @@ package akka.dispatch
 import akka.AkkaException
 import akka.event.EventHandler
 import akka.actor.{ Actor, Channel }
-import akka.util.Duration
+import scala.util.Duration
 import akka.japi.{ Procedure, Function => JFunc }
 
 

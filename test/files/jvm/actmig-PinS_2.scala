@@ -9,7 +9,7 @@ object SillyActor {
  */
 class SillyActor extends StashingActor {
   // TODO write down
-  def handle = {case _ => println("Nop")}
+  def receive = {case _ => println("Nop")}
   // TODO write down
   override def act() {
     for (i <- 1 to 5) {
@@ -24,7 +24,7 @@ object SeriousActor {
 }
 
 class SeriousActor extends StashingActor {
-  def handle = {case _ => println("Nop")}
+  def receive = {case _ => println("Nop")}
   override def act() {
     for (i <- 1 to 5) {
       println("To be or not to be.")
@@ -43,7 +43,7 @@ object NameResolver {
 class NameResolver extends StashingActor {
   import java.net.{InetAddress, UnknownHostException}
 
-  def handle = {case _ => println("Nop")}
+  def receive = {case _ => println("Nop")}
 
   override def act() {
     react {
@@ -75,16 +75,16 @@ object Test extends App {
    */
   def makeEchoActor(): ActorRef = MigrationSystem.actorOf(new StashingActor {
     
-    def handle = {case _ => println("Nop")}
+    def receive = {case _ => println("Nop")}
 
     override def act() {
-      while (true) {
-	receive {
-	  case 'stop =>
-	    exit()
-	  case msg =>
-	    println("received message: " + msg)
-	}
+      loop {
+        react {
+    	 case 'stop =>
+    	   exit()
+    	   case msg =>
+    	   println("received message: " + msg)
+        }
       }
     }
   }).start()
@@ -93,20 +93,20 @@ object Test extends App {
    */
   def makeIntActor(): ActorRef = MigrationSystem.actorOf(new StashingActor {
 
-    def handle = {case _ => println("Nop")}
+    def receive = {case _ => println("Nop")}
 
     override def act() {
-     receive {
-	  case x: Int => // I only want Ints
-	  println("Got an Int: " + x)
-	}
+      react {
+	   case x: Int => // I only want Ints
+	   println("Got an Int: " + x)
+	 }
     }
   }).start()
 
   // TODO test the name resolver with pattern matching
   MigrationSystem.actorOf(new StashingActor {
     
-    def handle = {case _ => println("Nop")} 
+    def receive = {case _ => println("Nop")} 
 
     override def act() {
       trapExit = true
@@ -121,7 +121,7 @@ object Test extends App {
               // PinS, page 694
               val seriousActor2 = MigrationSystem.actorOf{new StashingActor {
 
-                def handle = {case _ => println("Nop")}
+                def receive = {case _ => println("Nop")}
 
                 override def act() {
                   for (i <- 1 to 5) {

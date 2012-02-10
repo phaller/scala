@@ -15,7 +15,7 @@ class TimerException(message: String) extends RuntimeException(message)
  * Simple timer class.
  * Usage:
  * <pre>
- *   import akka.util.duration._
+ *   import scala.util.duration._
  *   import akka.util.Timer
  *
  *   val timer = Timer(30.seconds)
@@ -228,7 +228,7 @@ object Duration {
  * <p/>
  * Examples of usage from Scala:
  * <pre>
- * import akka.util.Duration
+ * import scala.util.Duration
  * import java.util.concurrent.TimeUnit
  *
  * val duration = Duration(100, MILLISECONDS)
@@ -242,7 +242,7 @@ object Duration {
  * <p/>
  * Implicits are also provided for Int, Long and Double. Example usage:
  * <pre>
- * import akka.util.duration._
+ * import scala.util.duration._
  *
  * val duration = 100 millis
  * </pre>
