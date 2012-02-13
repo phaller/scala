@@ -1,8 +1,7 @@
 package scala.actors
 
 import scala.util.Timeout
-import java.util.concurrent.{TimeoutException}
-// TODO (VJ) total cleanup of this file. There should be only two definitions here.
+import java.util.concurrent.TimeoutException
 
 trait ActorRef  {
 
@@ -86,8 +85,8 @@ trait ActorRef  {
 }
 
 
-private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
-     
+private[actors] class OutputChannelRef(val actor: OutputChannel[Any]) extends ActorRef {
+  
   def ?(message: Any)(implicit timeout: Timeout): Future[Any] = 
     throw new UnsupportedOperationException("NIY")
 
@@ -106,31 +105,38 @@ private[actors] class ReactorRef(val actor: Reactor[Any]) extends ActorRef {
     	actor.send(message, sender.localActor)
     else 
         actor ! message
-
-  def start(): ActorRef = {
-    actor.start()
-    this
-  }
-  
-  /**
+        
+        
+ /**
    * Shuts down the actor its dispatcher and message queue.
    */
   def stop(): Unit = ()
+  
+  override def equals(that: Any) = 
+    that.isInstanceOf[OutputChannelRef] && that.asInstanceOf[OutputChannelRef].actor == this.actor
+  
+  private[actors] override def localActor: AbstractActor = 
+    throw new UnsupportedOperationException("Output channel does not have an instance of the actor")
+  
+  def forward(message: Any): Unit = throw new UnsupportedOperationException("OutputChannel does not support forward.")
+  
+  def start(): ActorRef = throw new UnsupportedOperationException("OutputChannel does not support start.")
+}
+
+private[actors] class ReactorRef(override val actor: Reactor[Any]) extends OutputChannelRef(actor) {
+       
+  override def start(): ActorRef = {
+    actor.start()
+    this
+  }  
 
   /**
    * Forwards the message and passes the original sender actor as the sender.
    * <p/>
    * Works with '!' and '?'.
    */
-  def forward(message: Any) = actor.forward(message)
-
-  override def equals(that: Any) = 
-    that.isInstanceOf[ReactorRef] && that.asInstanceOf[ReactorRef].actor == this.actor
-  
-  
-  private[actors] override def localActor: AbstractActor = 
-    throw new UnsupportedOperationException("Reactor does not have an instance of the actor")
-  
+  override def forward(message: Any) = actor.forward(message)
+    
 }
 
 private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) extends ReactorRef(actor) {
@@ -151,9 +157,7 @@ private[actors] class ReplyActorRef(override val actor: InternalReplyReactor) ex
     actor.start()
     this
   }
-  
-  private[actors] override def localActor: AbstractActor = 
-    throw new UnsupportedOperationException("ReplyReactor does not have an instance of the actor")
+    
 }
 
 private[actors] final class InternalActorRef(override val actor: InternalActor) extends ReplyActorRef(actor) {

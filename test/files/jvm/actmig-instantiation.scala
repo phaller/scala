@@ -25,7 +25,7 @@ object Test {
   def main(args: Array[String]) = {
     // plain scala actor
     val a1 = actor {
-      reset {react { case v:Int => Test.append(v); Test.latch.countDown() }}
+      react { case v:Int => Test.append(v); Test.latch.countDown() }
     }
     a1 ! 100
  
@@ -37,7 +37,7 @@ object Test {
     toStop += a2
     // actor of with scala actor
     val a3 = actorOf(actor{
-      reset {react { case v:Int => Test.append(v); Test.latch.countDown() }}
+      react { case v:Int => Test.append(v); Test.latch.countDown() }
     })        
     a3 ! 300 
      

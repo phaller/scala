@@ -1,6 +1,8 @@
 package scala.actors
 
 import scala.collection._
+import scala.util.Duration
+import java.util.concurrent.TimeUnit
 
 object StashingActor extends Combinators {
   implicit def mkBody[A](body: => A) = new InternalActor.Body[A] {
@@ -19,19 +21,11 @@ trait StashingActor extends InternalActor {
   
   val self: ActorRef = ref
   
-  protected[this] val context: ActorContext = new ActorContext(ref)
+  protected[this] val context: ActorContext = new ActorContext(this)
   
   @volatile
-  private[this] var myTimeout: Option[Long] = None
+  private var myTimeout: Option[Long] = None
 
-  def receiveTimeout: Option[Long] = myTimeout
-
-  def receiveTimeout_=(timeout: Option[Long]) = {
-    myTimeout = timeout
-  }
-  
-  
-  
   /**
    * Migration notes:
    *   this method replaces receiveWithin, receive and react methods from Scala Actors.
@@ -66,7 +60,7 @@ trait StashingActor extends InternalActor {
    * Puts the behavior on top of the hotswap stack.
    * If "discardOld" is true, an unbecome will be issued prior to pushing the new behavior to the stack
    */
-  def become(behavior: Receive, discardOld: Boolean = true) {
+  private def become(behavior: Receive, discardOld: Boolean = true) {
     if (discardOld) unbecome()
     behaviorStack = behaviorStack.push(wrapWithSystemMessageHandling(behavior)) 
   }
@@ -74,7 +68,7 @@ trait StashingActor extends InternalActor {
   /**
    * Reverts the Actor behavior to the previous one in the hotswap stack.
    */
-  def unbecome() {
+  private def unbecome() {
     // never unbecome the initial behavior
     if (behaviorStack.size > 1)
       behaviorStack = behaviorStack.pop
@@ -93,18 +87,8 @@ trait StashingActor extends InternalActor {
     }
   }
 
-  protected def sender: ActorRef = throw new UnsupportedOperationException("") // TODO (VJ) fix the output channel
-  
-  /*
-   * Deprecated part of the API. Used only for smoother transition between scala and akka actors
-   */  
-  protected[actors] override def reply(msg: Any) = super.reply(msg)
-
-  override def forward(msg: Any) = super.forward(msg)
-
-  override def reactWithin(msec: Long)(handler: PartialFunction[Any, Unit]): Nothing =
-    super.reactWithin(msec)(handler)
-  
+  protected def sender: ActorRef = new OutputChannelRef(internalSender)
+    
   override def act(): Unit = internalAct()    
 
   override def start(): StashingActor = {
@@ -177,15 +161,15 @@ trait StashingActor extends InternalActor {
     })
   }
   
-  /*
+  /**
    * Method that models the behavior of Akka actors.  
    */
   private[actors] def internalAct() {
     trapExit = true
     behaviorStack = behaviorStack.push(wrapWithSystemMessageHandling(receive))    
     loop {            
-        if (receiveTimeout.isDefined)          
-          reactWithin(receiveTimeout.get)(behaviorStack.top)
+        if (myTimeout.isDefined)          
+          reactWithin(myTimeout.get)(behaviorStack.top)
         else
           react(behaviorStack.top)
     }  
@@ -198,7 +182,19 @@ trait StashingActor extends InternalActor {
   /**
    * Used to simulate Akka context behavior. Should be used only for migration purposes.
    */
-  protected[actors] class ActorContext(val ref: InternalActorRef) {
+  protected[actors] class ActorContext(val actr: StashingActor) {
+    
+  /**
+   * Changes the Actor's behavior to become the new 'Receive' (PartialFunction[Any, Unit]) handler.
+   * Puts the behavior on top of the hotswap stack.
+   * If "discardOld" is true, an unbecome will be issued prior to pushing the new behavior to the stack
+   */
+  def become(behavior: Receive, discardOld: Boolean = true) = actr.become(behavior, discardOld)      
+
+  /**
+   * Reverts the Actor behavior to the previous one in the hotswap stack.
+   */
+  def unbecome() = actr.unbecome()
     
     /**
     * Shuts down the actor its dispatcher and message queue.
@@ -206,14 +202,14 @@ trait StashingActor extends InternalActor {
     def stop(subject: ActorRef): Nothing = if (subject != ref) 
       throw new RuntimeException("Only stoping of self is allowed during migration.") 
     else     
-      ref.localActor.exit()
+      actr.exit()
     
     /**
     * Registers this actor as a Monitor for the provided ActorRef.
     * @return the provided ActorRef
     */
     def watch(subject: ActorRef): ActorRef = {
-      ref.localActor.link(subject)
+      actr.link(subject)
       // TODO (VJ) change to unidirectional 
       //ref.localActor.watch(subject)
       subject
@@ -224,11 +220,24 @@ trait StashingActor extends InternalActor {
      * @return the provided ActorRef
      */
      def unwatch(subject: ActorRef): ActorRef = {
-       ref.localActor.unlink(subject)
+       actr.unlink(subject)
        // TODO (VJ) change to unidirectional
        // ref.localActor unwatch subject
        subject
-     }    
+     }
+     
+     /**
+      * Defines the receiver timeout value.
+      */
+     final def setReceiveTimeout(timeout: Duration): Unit = 
+       actr.myTimeout = Some(timeout.toMillis)
+     
+     /**
+      * Gets the current receiveTimeout 
+      */
+     final def receiveTimeout: Option[Duration] = 
+       actr.myTimeout.map(Duration(_, TimeUnit.MILLISECONDS))
+            
   }
 }
 

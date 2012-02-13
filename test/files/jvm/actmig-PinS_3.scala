@@ -113,7 +113,7 @@ object Test extends App {
 	unstashAll()
         context.watch(SeriousActor.ref)
         SeriousActor.ref.start()      
-        become {
+        context.become {
             case Terminated(`serious`) =>              
               // PinS, page 694
               val seriousActor2 = MigrationSystem.actorOf{new StashingActor {
@@ -137,7 +137,7 @@ object Test extends App {
 	      echoActor ! 15
 	      echoActor ! 'stop
 	      // TODO write a wrapper for automatic unstashing and exception handling
-	      become {
+	      context.become {
 		case Terminated(_) =>
 		  unstashAll()
 		  val intActor = makeIntActor()
@@ -145,8 +145,8 @@ object Test extends App {
 		  intActor ! math.Pi
 		  // only the following send leads to output
 		  intActor ! 12		  
-		  unbecome()
-  		  unbecome()
+		  context.unbecome()
+  		  context.unbecome()
 		  context.stop(self)
 		case m => println("Stash 1 "+ m); stash(m)
 	      }
