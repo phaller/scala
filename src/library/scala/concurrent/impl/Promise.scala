@@ -128,7 +128,7 @@ object Promise {
     
     private def ready(atMost: Duration)(implicit permit: CanAwait): this.type =
       if (value.isDefined || tryAwait(atMost)) this
-      else throw new TimeoutException("Futures timed out after [" + atMost.toMillis + "] milliseconds")
+      else throw new TimeoutException("Future timed out after " + atMost.toMillis + " milliseconds")
     
     def await(atMost: Duration)(implicit permit: CanAwait): T =
       ready(atMost).value.get match {
