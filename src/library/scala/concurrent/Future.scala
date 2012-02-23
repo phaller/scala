@@ -381,7 +381,7 @@ self =>
    *  {{{
    *  val f = future { sys.error("failed") }
    *  val g = future { 5 }
-   *  val h = f orElse g
+   *  val h = f fallbackTo g
    *  await(0) h // evaluates to 5
    *  }}}
    */
