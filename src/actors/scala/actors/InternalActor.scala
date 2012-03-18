@@ -325,7 +325,7 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
    */
   private[actors] def watch(subject: ActorRef): ActorRef = {
     assert(Actor.self(scheduler) == this, "link called on actor different from self")
-    this linkTo subject.localActor
+    subject.localActor linkTo this
     subject
   }
   
@@ -334,7 +334,7 @@ private[actors] trait InternalActor extends AbstractActor with InternalReplyReac
    */
   private[actors] def unwatch(subject: ActorRef): ActorRef = {
     assert(Actor.self(scheduler) == this, "link called on actor different from self")
-    this unlinkFrom subject.localActor
+    subject.localActor unlinkFrom this 
     subject
   } 
     

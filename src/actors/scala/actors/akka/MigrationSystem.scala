@@ -26,14 +26,8 @@ object MigrationSystem {
     }
   }
   
-  def actorOf(factory: ⇒ InternalActor): ActorRef = withCleanContext {
-    val r = new InternalActorRef(factory)
-    r
-  }  
-  
-  def actorOf[T <: InternalActor](implicit m: Manifest[T]): ActorRef = withCleanContext {
-    val clazz = m.erasure.asInstanceOf[Class[_ <: StashingActor]]
-    val r = new InternalActorRef(clazz.newInstance())    
+  def actorOf(props: Props): ActorRef = withCleanContext {
+    val r = new InternalActorRef(props.creator())
     r
   }
   

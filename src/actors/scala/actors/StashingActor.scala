@@ -174,9 +174,10 @@ trait StashingActor extends InternalActor {
           react(behaviorStack.top)
     }  
   }
-
+    
   private[actors] override def internalPostStop() = postStop()
 
+  // Used for pattern matching statement similar to Akka 
   lazy val ReceiveTimeout = TIMEOUT
   
   /**
@@ -208,10 +209,8 @@ trait StashingActor extends InternalActor {
     * Registers this actor as a Monitor for the provided ActorRef.
     * @return the provided ActorRef
     */
-    def watch(subject: ActorRef): ActorRef = {
-      actr.link(subject)
-      // TODO (VJ) change to unidirectional 
-      //ref.localActor.watch(subject)
+    def watch(subject: ActorRef): ActorRef = { 
+      actr.watch(subject)
       subject
     }
 
@@ -220,9 +219,7 @@ trait StashingActor extends InternalActor {
      * @return the provided ActorRef
      */
      def unwatch(subject: ActorRef): ActorRef = {
-       actr.unlink(subject)
-       // TODO (VJ) change to unidirectional
-       // ref.localActor unwatch subject
+       actr unwatch subject
        subject
      }
      

@@ -1,6 +1,6 @@
 import scala.actors.MigrationSystem._
 import scala.actors.Actor._
-import scala.actors.{Actor, StashingActor, ActorRef}
+import scala.actors.{Actor, StashingActor, ActorRef, Props}
 import java.util.concurrent.{TimeUnit, CountDownLatch}
 import scala.collection.mutable.ArrayBuffer
 
@@ -30,19 +30,19 @@ object Test {
     a1 ! 100
  
     // simple instantiation
-    val a2 = actorOf(new TestStashingActor) 
+    val a2 = actorOf(Props(new TestStashingActor, "default-stash-dispatcher")) 
     a2.start()
     a2 ! 200
     
     toStop += a2
     // actor of with scala actor
-    val a3 = actorOf(actor{
+    val a3 = actorOf(Props(actor {
       react { case v:Int => Test.append(v); Test.latch.countDown() }
-    })        
+    }, "default-stash-dispatcher"))
     a3 ! 300 
      
     // using the manifest    
-    val a4 = actorOf[TestStashingActor].start()
+    val a4 = actorOf(Props(new TestStashingActor, "default-stash-dispatcher")).start()
     a4 ! 400
 
     toStop += a4
@@ -58,10 +58,10 @@ object Test {
  
     // actorOf double creation
     try {
-     val a3 = actorOf {
+     val a3 = actorOf(Props({
        new TestStashingActor
        new TestStashingActor
-     }
+     }, "default-stash-dispatcher"))
      a3 ! -1
     } catch {
       case e => println("OK error: " + e)
@@ -69,10 +69,11 @@ object Test {
     
     // actorOf nesting
     try {
-     val a5 = actorOf {
-       val a6 = actorOf[TestStashingActor]       
+     val a5 = actorOf(Props({
+       val a6 = actorOf(Props(new TestStashingActor, "default-stash-dispatcher"))       
        new TestStashingActor
-     }
+     }, "default-stash-dispatcher"))
+     
      a5.start()
      a5 ! 500
      toStop += a5

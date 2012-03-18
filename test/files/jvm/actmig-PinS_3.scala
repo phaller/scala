@@ -148,11 +148,17 @@ object Test extends App {
 		  context.unbecome()
   		  context.unbecome()
 		  context.stop(self)
-		case m => println("Stash 1 "+ m); stash(m)
+		case m => 
+		  println("Stash 1 "+ m)
+		  stash(m)
 	      }
-	    case m => println("Stash 2 "+ m); stash(m)
+	    case m => 
+	      println("Stash 2 "+ m) 
+	      stash(m)
        } 
-      case m => println("Stash 3 " +  m);stash(m)
+      case m => 
+        println("Stash 3 " +  m)
+        stash(m)
     }
    }).start()
 }
