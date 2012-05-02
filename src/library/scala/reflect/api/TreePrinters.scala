@@ -29,19 +29,23 @@ trait TreePrinters { self: Universe =>
   def newTreePrinter(out: PrintWriter): TreePrinter
 
   // emits more or less verbatim representation of the provided tree
-  // todo. when LiftCode becomes a macro, throw this code away and use that macro
   class RawTreePrinter(out: PrintWriter) extends TreePrinter {
+    val EmptyValDef = self.emptyValDef
     def print(args: Any*): Unit = args foreach {
       case EmptyTree =>
         print("EmptyTree")
+      case EmptyValDef =>
+        print("emptyValDef")
       case tree @ TypeTree() =>
         print("TypeTree()")
         if (tree.tpe != null)
           print(".setType(", tree.tpe, ")")
         else if (tree.original != null)
           print(".setOriginal(", tree.original, ")")
+      case Literal(Constant(s: String)) =>
+        print("Literal(Constant(\"" + s + "\"))")
       case tree: Tree =>
-        print(tree.productPrefix+"(")
+        print(tree.printingPrefix+"(")
         val it = tree.productIterator
         while (it.hasNext) {
           it.next() match {
@@ -55,7 +59,7 @@ trait TreePrinters { self: Universe =>
         print(")")
         if (typesPrinted)
           print(".setType(", tree.tpe, ")")
-      case list: List[_] => 
+      case list: List[_] =>
         print("List(")
         val it = list.iterator
         while (it.hasNext) {
@@ -64,16 +68,16 @@ trait TreePrinters { self: Universe =>
         }
         print(")")
       case mods: Modifiers =>
-        val parts = collection.mutable.ListBuffer[String]() 
+        val parts = collection.mutable.ListBuffer[String]()
         parts += "Set(" + mods.modifiers.map(_.sourceString).mkString(", ") + ")"
         parts += "newTypeName(\"" + mods.privateWithin.toString + "\")"
         parts += "List(" + mods.annotations.map{showRaw}.mkString(", ") + ")"
-        
+
         var keep = 3
         if (keep == 3 && mods.annotations.isEmpty) keep -= 1
         if (keep == 2 && mods.privateWithin == EmptyTypeName) keep -= 1
         if (keep == 1 && mods.modifiers.isEmpty) keep -= 1
-        
+
         print("Modifiers(", parts.take(keep).mkString(", "), ")")
       case name: Name =>
         if (name.isTermName) print("newTermName(\"") else print("newTypeName(\"")

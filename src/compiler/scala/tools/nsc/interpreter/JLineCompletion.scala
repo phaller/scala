@@ -18,7 +18,7 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
   import global._
   import definitions.{ PredefModule, RootClass, AnyClass, AnyRefClass, ScalaPackage, JavaLangPackage, getModuleIfDefined }
   type ExecResult = Any
-  import intp.{ debugging, afterTyper }
+  import intp.{ debugging }
 
   // verbosity goes up with consecutive tabs
   private var verbosity: Int = 0
@@ -61,7 +61,7 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
     def packageNames  = packages map tos
     def aliasNames    = aliases map tos
   }
-  
+
   object NoTypeCompletion extends TypeMemberCompletion(NoType) {
     override def memberNamed(s: String) = NoSymbol
     override def members = Nil
@@ -165,11 +165,11 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
     override def follow(id: String): Option[CompletionAware] = {
       if (!completions(0).contains(id))
         return None
-      
+
       val tpe = intp typeOfExpression id
       if (tpe == NoType)
         return None
-      
+
       def default = Some(TypeMemberCompletion(tpe))
 
       // only rebinding vals in power mode for now.
@@ -194,14 +194,7 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
 
   // literal Ints, Strings, etc.
   object literals extends CompletionAware {
-    def simpleParse(code: String): Tree = {
-      val unit    = new CompilationUnit(new util.BatchSourceFile("<console>", code))
-      val scanner = new syntaxAnalyzer.UnitParser(unit)
-      val tss     = scanner.templateStatSeq(false)._2
-
-      if (tss.size == 1) tss.head else EmptyTree
-    }
-
+    def simpleParse(code: String): Tree = newUnitParser(code).templateStats().last
     def completions(verbosity: Int) = Nil
 
     override def follow(id: String) = simpleParse(id) match {
@@ -287,7 +280,12 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
   }
 
   // chasing down results which won't parse
+  // This used to work fine, now it reports a type error before any
+  // exception gets to us. See SI-5657.  Don't have time to deal with
+  // it, so disabling everything.
   def execute(line: String): Option[ExecResult] = {
+    return None // disabled
+
     val parsed = Parsed(line)
     def noDotOrSlash = line forall (ch => ch != '.' && ch != '/')
 

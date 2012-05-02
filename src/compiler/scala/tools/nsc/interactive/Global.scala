@@ -19,6 +19,7 @@ import scala.tools.nsc.io.Pickler._
 import scala.tools.nsc.typechecker.DivergentImplicit
 import scala.annotation.tailrec
 import symtab.Flags.{ACCESSOR, PARAMACCESSOR}
+import language.implicitConversions
 
 /** The main class of the presentation compiler in an interactive environment such as an IDE
  */
@@ -357,6 +358,7 @@ class Global(settings: Settings, _reporter: Reporter, projectName: String = "")
             checkNoResponsesOutstanding()
 
             log.flush();
+            scheduler = new NoWorkScheduler
             throw ShutdownReq
           }
 
@@ -433,6 +435,7 @@ class Global(settings: Settings, _reporter: Reporter, projectName: String = "")
   private def newRunnerThread(): Thread = {
     threadId += 1
     compileRunner = new PresentationCompilerThread(this, projectName)
+    compileRunner.setDaemon(true)
     compileRunner.start()
     compileRunner
   }
@@ -528,6 +531,7 @@ class Global(settings: Settings, _reporter: Reporter, projectName: String = "")
     unit.defined.clear()
     unit.synthetics.clear()
     unit.toCheck.clear()
+    unit.checkedFeatures = Set()
     unit.targetPos = NoPosition
     unit.contexts.clear()
     unit.problems.clear()
@@ -609,6 +613,15 @@ class Global(settings: Settings, _reporter: Reporter, projectName: String = "")
         }
         response raise ex
         throw ex
+
+      case ex @ ShutdownReq =>
+        if (debugIDE) {
+          println("ShutdownReq thrown during response")
+          ex.printStackTrace()
+        }
+        response raise ex
+        throw ex
+
       case ex =>
         if (debugIDE) {
           println("exception thrown during response: "+ex)
@@ -946,7 +959,7 @@ class Global(settings: Settings, _reporter: Reporter, projectName: String = "")
         if (ownerTpe.isErroneous) List()
         else new ImplicitSearch(
           tree, functionType(List(ownerTpe), AnyClass.tpe), isView = true,
-          context.makeImplicit(reportAmbiguousErrors = false)).allImplicits
+          context0 = context.makeImplicit(reportAmbiguousErrors = false)).allImplicits
       for (view <- applicableViews) {
         val vtree = viewApply(view)
         val vpre = stabilizedType(vtree)

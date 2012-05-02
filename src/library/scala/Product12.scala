@@ -17,7 +17,7 @@ object Product12 {
 /** Product12 is a cartesian product of 12 components.
  *  @since 2.3
  */
-trait Product12[+T1, +T2, +T3, +T4, +T5, +T6, +T7, +T8, +T9, +T10, +T11, +T12] extends Product {
+trait Product12[+T1, +T2, +T3, +T4, +T5, +T6, +T7, +T8, +T9, +T10, +T11, +T12] extends Any with Product {
   /** The arity of this product.
    *  @return 12
    */
@@ -28,7 +28,7 @@ trait Product12[+T1, +T2, +T3, +T4, +T5, +T6, +T7, +T8, +T9, +T10, +T11, +T12] e
    *  otherwise throws an `IndexOutOfBoundsException`.
    *
    *  @param n number of the projection to be returned
-   *  @return  same as `._(n+1)`, for example `productElement(1)` is the same as `._1`.
+   *  @return  same as `._(n+1)`, for example `productElement(0)` is the same as `._1`.
    *  @throws  IndexOutOfBoundsException
    */
 

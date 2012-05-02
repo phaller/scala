@@ -40,6 +40,7 @@ import mirror._
  *
  */
 @annotation.implicitNotFound(msg = "No Manifest available for ${T}.")
+@deprecated("Use `@scala.reflect.ConcreteTypeTag` instead", "2.10.0")
 trait Manifest[T] extends ClassManifest[T] with Equals {
   override def typeArguments: List[Manifest[_]] = Nil
 
@@ -60,6 +61,7 @@ trait Manifest[T] extends ClassManifest[T] with Equals {
   override def hashCode = this.erasure.##
 }
 
+@deprecated("Use type tags and manually check the corresponding class or type instead", "2.10.0")
 abstract class AnyValManifest[T <: AnyVal](override val toString: String) extends Manifest[T] with Equals {
   override def <:<(that: ClassManifest[_]): Boolean =
     (that eq this) || (that eq Manifest.Any) || (that eq Manifest.AnyVal)
@@ -75,6 +77,7 @@ abstract class AnyValManifest[T <: AnyVal](override val toString: String) extend
  *  It is intended for use by the compiler and should not be used
  *  in client code.
  */
+@deprecated("Use `@scala.reflect.ConcreteTypeTag` instead", "2.10.0")
 object Manifest {
   def valueManifests: List[AnyValManifest[_]] =
     List(Byte, Short, Char, Int, Long, Float, Double, Boolean, Unit)
@@ -179,7 +182,6 @@ object Manifest {
 
   private class SingletonTypeManifest[T <: AnyRef](value: AnyRef) extends Manifest[T] {
     lazy val erasure = value.getClass
-    override lazy val tpe = mirror.SingleType(mirror.NoPrefix, InstanceRefSymbol(value)) // todo: change to freevar
     override lazy val toString = value.toString + ".type"
   }
 
@@ -218,15 +220,6 @@ object Manifest {
   private class ClassTypeManifest[T](prefix: Option[Manifest[_]],
                                      val erasure: Predef.Class[_],
                                      override val typeArguments: List[Manifest[_]]) extends Manifest[T] {
-    override lazy val tpe = {
-      val clazz = classToSymbol(erasure)
-      val pre = prefix match {
-        case Some(pm) => pm.tpe
-        case None     => clazz.owner.thisPrefix
-      }
-      namedType(pre, clazz, typeArguments map (_.tpe))
-    }
-
     override def toString =
       (if (prefix.isEmpty) "" else prefix.get.toString+"#") +
       (if (erasure.isArray) "Array" else erasure.getName) +
@@ -242,7 +235,6 @@ object Manifest {
   def abstractType[T](prefix: Manifest[_], name: String, upperBound: Predef.Class[_], args: Manifest[_]*): Manifest[T] =
     new Manifest[T] {
       def erasure = upperBound
-      override lazy val tpe = namedType(prefix.tpe, prefix.tpe.member(newTypeName(name)), args map (_.tpe) toList)
       override val typeArguments = args.toList
       override def toString = prefix.toString+"#"+name+argString
     }
@@ -252,7 +244,6 @@ object Manifest {
   def wildcardType[T](lowerBound: Manifest[_], upperBound: Manifest[_]): Manifest[T] =
     new Manifest[T] {
       def erasure = upperBound.erasure
-      override lazy val tpe = mirror.TypeBounds(lowerBound.tpe, upperBound.tpe)
       override def toString =
         "_" +
         (if (lowerBound eq Nothing) "" else " >: "+lowerBound) +
@@ -263,27 +254,6 @@ object Manifest {
   def intersectionType[T](parents: Manifest[_]*): Manifest[T] =
     new Manifest[T] {
       def erasure = parents.head.erasure
-      override lazy val tpe = mirror.RefinedType((parents map (_.tpe)).toList, newScope)
       override def toString = parents.mkString(" with ")
     }
-
-  /** A generic manifest factory from a reflect.Type. Except where
-   *  mandated by performance considerations, we should replace most
-   *  other manifest factories by this one. There's just one thing
-   *  that needs to be done first: A Manifest's type can refer
-   *  to type variables that are controlled by manifests. In that
-   *  case the reified type needs to contain the type passed in the manifest
-   *  instead of the reference to the manifest. Note that splicing manifests
-   *  into manfifests is completely analogous to splicing code blocks into
-   *  code blocks. Manifest[T] and Code[T] are really the same thing, only one
-   *  works for types, the other for trees.
-   *  Another complication is that once we generate manifests from types, we really
-   *  should have reflection as a standard component shipped with the standard library,
-   *  instead of in scala-compiler.jar.
-   */
-  def apply[T](_tpe: mirror.Type): Manifest[T] = new Manifest[T] {
-    override lazy val tpe = _tpe
-    override def erasure = mirror.typeToClass(_tpe.erasedType)
-    override def toString = _tpe.toString
-  }
 }

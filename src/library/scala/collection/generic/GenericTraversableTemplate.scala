@@ -14,6 +14,7 @@ package generic
 import mutable.Builder
 import annotation.migration
 import annotation.unchecked.uncheckedVariance
+import language.higherKinds
 
 /** A template class for companion objects of ``regular`` collection classes
  *  that represent an unconstrained higher-kinded type.
@@ -119,22 +120,25 @@ trait GenericTraversableTemplate[+A, +CC[X] <: GenTraversable[X]] extends HasNew
    *  a $coll formed by the elements of these traversable
    *  collections.
    *
-   *  The resulting collection's type will be guided by the
-   *  static type of $coll. For example:
-   *
-   *  {{{
-   *  val xs = List(Set(1, 2, 3), Set(1, 2, 3))
-   *  // xs == List(1, 2, 3, 1, 2, 3)
-   *
-   *  val ys = Set(List(1, 2, 3), List(3, 2, 1))
-   *  // ys == Set(1, 2, 3)
-   *  }}}
-   *
    *  @tparam B the type of the elements of each traversable collection.
    *  @param asTraversable an implicit conversion which asserts that the element
    *          type of this $coll is a `GenTraversable`.
    *  @return a new $coll resulting from concatenating all element ${coll}s.
+   *
    *  @usecase def flatten[B]: $Coll[B]
+   *
+   *    @inheritdoc
+   *  
+   *    The resulting collection's type will be guided by the
+   *    static type of $coll. For example:
+   *
+   *    {{{
+   *    val xs = List(Set(1, 2, 3), Set(1, 2, 3))
+   *    // xs == List(1, 2, 3, 1, 2, 3)
+   *
+   *    val ys = Set(List(1, 2, 3), List(3, 2, 1))
+   *    // ys == Set(1, 2, 3)
+   *    }}} 
    */
   def flatten[B](implicit asTraversable: A => /*<:<!!!*/ GenTraversableOnce[B]): CC[B] = {
     val b = genericBuilder[B]
@@ -142,11 +146,6 @@ trait GenericTraversableTemplate[+A, +CC[X] <: GenTraversable[X]] extends HasNew
       b ++= asTraversable(xs).seq
     b.result
   }
-
-  // cannot have a bridge, because it would have the same signature as the target method after erasure
-  // @bridge
-  // def flatten[B](implicit asTraversable: A => /*<:<!!!*/ TraversableOnce[B]): CC[B] =
-  //   flatten[B](asTraversable: A => GenTraversableOnce[B])
 
   /** Transposes this $coll of traversable collections into
    *  a $coll of ${coll}s.

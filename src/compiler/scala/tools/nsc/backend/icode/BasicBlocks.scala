@@ -11,6 +11,7 @@ import scala.collection.{ mutable, immutable }
 import mutable.{ ListBuffer, ArrayBuffer }
 import util.{ Position, NoPosition }
 import backend.icode.analysis.ProgramPoint
+import language.postfixOps
 
 trait BasicBlocks {
   self: ICodes =>
@@ -18,7 +19,7 @@ trait BasicBlocks {
   import opcodes._
   import global.{ ifDebug, settings, log, nme }
   import nme.isExceptionResultName
-  
+
   object NoBasicBlock extends BasicBlock(-1, null)
 
   /** This class represents a basic block. Each
@@ -182,7 +183,7 @@ trait BasicBlocks {
     final def foreach[U](f: Instruction => U) = {
       if (!closed) dumpMethodAndAbort(method, this)
       else instrs foreach f
-      
+
       // !!! If I replace "instrs foreach f" with the following:
       // var i = 0
       // val len = instrs.length
@@ -386,10 +387,16 @@ trait BasicBlocks {
     def close() {
       assert(!closed || ignore, this)
       assert(instructionList.nonEmpty, "Empty block: " + this)
-      closed = true
-      setFlag(DIRTYSUCCS)
-      instructionList = instructionList.reverse
-      instrs = instructionList.toArray
+      if (ignore && closed) { // redundant `ignore &&` for clarity -- we should never be in state `!ignore && closed`
+        // not doing anything to this block is important...
+        // because the else branch reverses innocent blocks, which is wrong when they're in ignore mode (and closed)
+        // reversing the instructions when (closed && ignore) wreaks havoc for nested label jumps (see comments in genLoad)
+      } else {
+        closed = true
+        setFlag(DIRTYSUCCS)
+        instructionList = instructionList.reverse
+        instrs = instructionList.toArray
+      }
     }
 
     def open() {

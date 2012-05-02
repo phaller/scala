@@ -6,6 +6,8 @@
 	<artifactId>jline</artifactId>
 	<packaging>jar</packaging>
 	<version>@VERSION@</version>
+  <name>jline</name>
+  <description>Like readline, but better</description>
 	<url>http://www.scala-lang.org/</url>
 	<inceptionYear>2011</inceptionYear>
 	<organization>
@@ -26,13 +28,12 @@
     </license>
 	</licenses>
 	<scm>
-		<connection>scm:svn:http://lampsvn.epfl.ch/svn-repos/scala/scala/trunk</connection>
-		<url>https://lampsvn.epfl.ch/trac/scala/browser/scala/trunk</url>
+                <connection>scm:git:git://github.com/scala/scala.git</connection>
+                <url>https://github.com/scala/scala.git</url>
 	</scm>
 	<issueManagement>
-		<system>trac</system>
-		<url>http://lampsvn.epfl.ch/trac/scala
-		</url>
+                <system>JIRA</system>
+                <url>https://issues.scala-lang.org/</url>
 	</issueManagement>
 
 	<dependencies>
@@ -54,4 +55,14 @@
 			<uniqueVersion>false</uniqueVersion>
 		</snapshotRepository>
 	</distributionManagement>
+  <developers>
+    <developer>
+      <id>lamp</id>
+      <name>EPFL LAMP</name>
+    </developer>
+    <developer>
+      <id>Typesafe</id>
+      <name>Typesafe, Inc.</name>
+    </developer>
+  </developers>
 </project>

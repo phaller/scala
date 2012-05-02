@@ -6,7 +6,7 @@ package api
  *  The same string can be a name in both universes.
  *  Two names are equal if they represent the same string and they are
  *  members of the same universe.
- * 
+ *
  *  Names are interned. That is, for two names `name11 and `name2`,
  *  `name1 == name2` implies `name1 eq name2`.
  */
@@ -33,16 +33,16 @@ trait Names {
     /** Returns a type name that represents the same string as this name */
     def toTypeName: TypeName
 
-    /** Replaces all occurrences of $op_names in this name by corresponding operator symbols.
-     *  Example: `foo_+=` becomes `foo_$plus$eq`.
+    /** Replaces all occurrences of \$op_names in this name by corresponding operator symbols.
+     *  Example: `foo_\$plus\$eq` becomes `foo_+=`
      */
     def decoded: String
 
-    /** Replaces all occurrences of operator symbols in this name by corresponding $op_names.
-     *  Example: `foo_$plus$eq` becomes `foo_+=`
+    /** Replaces all occurrences of operator symbols in this name by corresponding \$op_names.
+     *  Example: `foo_+=` becomes `foo_\$plus\$eq`.
      */
     def encoded: String
-    
+
     /** The decoded name, still represented as a name.
      */
     def decodedName: Name

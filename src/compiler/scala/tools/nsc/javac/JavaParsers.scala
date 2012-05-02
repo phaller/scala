@@ -12,6 +12,7 @@ import scala.tools.nsc.util.OffsetPosition
 import scala.collection.mutable.ListBuffer
 import symtab.Flags
 import JavaTokens._
+import language.implicitConversions
 
 trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
   val global : Global
@@ -393,8 +394,7 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
       // assumed true unless we see public/private/protected
       var isPackageAccess = true
       var annots: List[Tree] = Nil
-      def addAnnot(sym: Symbol) =
-        annots :+= New(TypeTree(sym.tpe), List(Nil))
+      def addAnnot(sym: Symbol) = annots :+= New(sym.tpe)
 
       while (true) {
         in.token match {
@@ -654,15 +654,12 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
     // leaves auxiliary constructors unable to access members of the companion object
     // as unqualified identifiers.
     def addCompanionObject(statics: List[Tree], cdef: ClassDef): List[Tree] = {
-      def implWithImport(importStmt: Tree) = {
-        import cdef.impl._
-        treeCopy.Template(cdef.impl, parents, self, importStmt :: body)
-      }
+      def implWithImport(importStmt: Tree) = deriveTemplate(cdef.impl)(importStmt :: _)
       // if there are no statics we can use the original cdef, but we always
       // create the companion so import A._ is not an error (see ticket #1700)
       val cdefNew =
         if (statics.isEmpty) cdef
-        else treeCopy.ClassDef(cdef, cdef.mods, cdef.name, cdef.tparams, implWithImport(importCompanionObject(cdef)))
+        else deriveClassDef(cdef)(_ => implWithImport(importCompanionObject(cdef)))
 
       List(makeCompanionObject(cdefNew, statics), cdefNew)
     }
@@ -792,23 +789,24 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
       val idefs = members.toList ::: (sdefs flatMap forwarders)
       (sdefs, idefs)
     }
-
+    def annotationParents = List(
+      gen.scalaAnnotationDot(tpnme.Annotation),
+      Select(javaLangDot(nme.annotation), tpnme.Annotation),
+      gen.scalaAnnotationDot(tpnme.ClassfileAnnotation)
+    )
     def annotationDecl(mods: Modifiers): List[Tree] = {
       accept(AT)
       accept(INTERFACE)
       val pos = in.currentPos
       val name = identForType()
-      val parents = List(scalaDot(tpnme.Annotation),
-                         Select(javaLangDot(nme.annotation), tpnme.Annotation),
-                         scalaDot(tpnme.ClassfileAnnotation))
       val (statics, body) = typeBody(AT, name)
       def getValueMethodType(tree: Tree) = tree match {
         case DefDef(_, nme.value, _, _, tpt, _) => Some(tpt.duplicate)
         case _ => None
       }
-      var templ = makeTemplate(parents, body)
+      var templ = makeTemplate(annotationParents, body)
       for (stat <- templ.body; tpt <- getValueMethodType(stat))
-        templ = makeTemplate(parents, makeConstructor(List(tpt)) :: templ.body)
+        templ = makeTemplate(annotationParents, makeConstructor(List(tpt)) :: templ.body)
       addCompanionObject(statics, atPos(pos) {
         ClassDef(mods, name, List(), templ)
       })

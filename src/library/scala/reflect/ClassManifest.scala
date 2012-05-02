@@ -6,23 +6,6 @@
 **                          |/                                          **
 \*                                                                      */
 
-/*  [Martin]
- *  Todo: ClassManifests currently contain all available type arguments.
- *        That's a waste of cycles if all that's needed is the class.
- *        We should have instead consider a structure like this:
- *
- *                  OptManifest
- *                  /        \
- *                 /          \
- *        PartialManifest   ClassManifest
- *                 \          /
- *                  \        /
- *                   Manifest
- *
- *        where PartialManifest means: generate as much as you can, use NoManifest
- *        where nothing is known, and
- *        ClassManifest means: generate exactly the top-level class, and nothing else.
- */
 package scala.reflect
 
 import scala.collection.mutable.{ WrappedArray, ArrayBuilder }
@@ -39,14 +22,11 @@ import java.lang.{ Class => jClass }
  *  be wrong when variance is involved or when a subtype has a different
  *  number of type arguments than a supertype.
  */
-trait ClassManifest[T] extends OptManifest[T] with Equals with Serializable {
+@deprecated("Use `@scala.reflect.ClassTag` instead", "2.10.0")
+trait ClassManifest[T] extends OptManifest[T] with ClassTag[T] with Equals with Serializable {
   /** A class representing the type `U` to which `T` would be erased. Note
     * that there is no subtyping relationship between `T` and `U`. */
   def erasure: jClass[_]
-
-  /** The Scala type described by this manifest.
-   */
-  lazy val tpe: mirror.Type = reflect.mirror.classToType(erasure)
 
   private def subtype(sub: jClass[_], sup: jClass[_]): Boolean = {
     def loop(left: Set[jClass[_]], seen: Set[jClass[_]]): Boolean = {
@@ -108,7 +88,7 @@ trait ClassManifest[T] extends OptManifest[T] with Equals with Serializable {
   def >:>(that: ClassManifest[_]): Boolean =
     that <:< this
 
-  def canEqual(other: Any) = other match {
+  override def canEqual(other: Any) = other match {
     case _: ClassManifest[_] => true
     case _                   => false
   }
@@ -129,7 +109,7 @@ trait ClassManifest[T] extends OptManifest[T] with Equals with Serializable {
   def arrayManifest: ClassManifest[Array[T]] =
     ClassManifest.classType[Array[T]](arrayClass[T](erasure), this)
 
-  def newArray(len: Int): Array[T] =
+  override def newArray(len: Int): Array[T] =
     java.lang.reflect.Array.newInstance(erasure, len).asInstanceOf[Array[T]]
 
   def newArray2(len: Int): Array[Array[T]] =
@@ -167,6 +147,7 @@ trait ClassManifest[T] extends OptManifest[T] with Equals with Serializable {
 /** The object `ClassManifest` defines factory methods for manifests.
  *  It is intended for use by the compiler and should not be used in client code.
  */
+@deprecated("Use `@scala.reflect.ClassTag` instead", "2.10.0")
 object ClassManifest {
   val Byte    = Manifest.Byte
   val Short   = Manifest.Short
@@ -248,7 +229,7 @@ object ClassManifest {
 }
 
 /** Manifest for the class type `clazz[args]`, where `clazz` is
-  * a top-level or static class: todo: we should try to merge this with Manifest's class */
+  * a top-level or static class */
 private class ClassTypeManifest[T <: AnyRef](
   prefix: Option[OptManifest[_]],
   val erasure: jClass[_],

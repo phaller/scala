@@ -12,7 +12,6 @@ package scala.collection
 import generic._
 import immutable.{ List, Stream }
 import annotation.unchecked.uncheckedVariance
-import annotation.bridge
 
 /** A template trait for iterable collections of type `Iterable[A]`.
  *  $iterableInfo
@@ -49,7 +48,7 @@ import annotation.bridge
  *  @define Coll Iterable
  *  @define coll iterable collection
  */
-trait IterableLike[+A, +Repr] extends Equals with TraversableLike[A, Repr] with GenIterableLike[A, Repr] {
+trait IterableLike[+A, +Repr] extends Any with Equals with TraversableLike[A, Repr] with GenIterableLike[A, Repr] {
 self =>
 
   override protected[this] def thisCollection: Iterable[A] = this.asInstanceOf[Iterable[A]]
@@ -67,6 +66,7 @@ self =>
    *    Subclasses should re-implement this method if a more efficient implementation exists.
    *
    *  @usecase def foreach(f: A => Unit): Unit
+   *    @inheritdoc
    */
   def foreach[U](f: A => U): Unit =
     iterator.foreach(f)
@@ -133,7 +133,7 @@ self =>
       it.next
       i += 1
     }
-    b ++= it result
+    (b ++= it).result
   }
 
   override /*TraversableLike*/ def takeWhile(p: A => Boolean): Repr = {
@@ -238,10 +238,6 @@ self =>
     b.result
   }
 
-  @bridge
-  def zip[A1 >: A, B, That](that: Iterable[B])(implicit bf: CanBuildFrom[Repr, (A1, B), That]): That =
-    zip(that: GenIterable[B])(bf)
-
   def zipAll[B, A1 >: A, That](that: GenIterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Repr, (A1, B), That]): That = {
     val b = bf(repr)
     val these = this.iterator
@@ -254,10 +250,6 @@ self =>
       b += ((thisElem, those.next))
     b.result
   }
-
-  @bridge
-  def zipAll[B, A1 >: A, That](that: Iterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Repr, (A1, B), That]): That =
-    zipAll(that: GenIterable[B], thisElem, thatElem)(bf)
 
   def zipWithIndex[A1 >: A, That](implicit bf: CanBuildFrom[Repr, (A1, Int), That]): That = {
     val b = bf(repr)
@@ -278,9 +270,6 @@ self =>
 
     !these.hasNext && !those.hasNext
   }
-
-  @bridge
-  def sameElements[B >: A](that: Iterable[B]): Boolean = sameElements(that: GenIterable[B])
 
   override /*TraversableLike*/ def toStream: Stream[A] = iterator.toStream
 

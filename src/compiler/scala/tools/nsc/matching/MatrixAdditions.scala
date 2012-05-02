@@ -20,7 +20,7 @@ trait MatrixAdditions extends ast.TreeDSL {
   import CODE._
   import Debug._
   import treeInfo._
-  import definitions.{ isValueClass }
+  import definitions.{ isPrimitiveValueClass }
 
   /** The Squeezer, responsible for all the squeezing.
    */
@@ -131,29 +131,17 @@ trait MatrixAdditions extends ast.TreeDSL {
 
       import Flags.{ MUTABLE, ABSTRACT, SEALED }
 
-      private case class Combo(index: Int, sym: Symbol) {
-        val isBaseClass = sym.tpe.baseClasses.toSet
-
-        // is this combination covered by the given pattern?
-        def isCovered(p: Pattern) = {
-          def coversSym = isBaseClass(decodedEqualsType(p.tpe).typeSymbol)
-
-          cond(p.tree) {
-            case _: UnApply | _: ArrayValue => true
-            case x                          => p.isDefault || coversSym
-          }
-        }
-      }
+      private case class Combo(index: Int, sym: Symbol) { }
 
       /* True if the patterns in 'row' cover the given type symbol combination, and has no guard. */
       private def rowCoversCombo(row: Row, combos: List[Combo]) =
-        row.guard.isEmpty && (combos forall (c => c isCovered row.pats(c.index)))
+        row.guard.isEmpty && combos.forall(c => row.pats(c.index) covers c.sym)
 
       private def requiresExhaustive(sym: Symbol) = {
          (sym.isMutable) &&                 // indicates that have not yet checked exhaustivity
         !(sym hasFlag NO_EXHAUSTIVE) &&     // indicates @unchecked
          (sym.tpe.typeSymbol.isSealed) &&
-        !isValueClass(sym.tpe.typeSymbol)   // make sure it's not a primitive, else (5: Byte) match { case 5 => ... } sees no Byte
+        !isPrimitiveValueClass(sym.tpe.typeSymbol)   // make sure it's not a primitive, else (5: Byte) match { case 5 => ... } sees no Byte
       }
 
       private lazy val inexhaustives: List[List[Combo]] = {
@@ -167,7 +155,7 @@ trait MatrixAdditions extends ast.TreeDSL {
             pv.tpe.typeSymbol.sealedDescendants.toList sortBy (_.sealedSortName)
             // symbols which are both sealed and abstract need not be covered themselves, because
             // all of their children must be and they cannot otherwise be created.
-            filterNot (x => x.isSealed && x.isAbstractClass && !isValueClass(x))
+            filterNot (x => x.isSealed && x.isAbstractClass && !isPrimitiveValueClass(x))
             // have to filter out children which cannot match: see ticket #3683 for an example
             filter (_.tpe matchesPattern pv.tpe)
           )

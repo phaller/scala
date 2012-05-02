@@ -9,11 +9,12 @@ package ast
 import scala.collection.mutable.ListBuffer
 import symtab.Flags._
 import symtab.SymbolTable
+import language.postfixOps
 
 /** XXX to resolve: TreeGen only assumes global is a SymbolTable, but
  *  TreeDSL at the moment expects a Global.  Can we get by with SymbolTable?
  */
-abstract class TreeGen extends reflect.internal.TreeGen {
+abstract class TreeGen extends reflect.internal.TreeGen with TreeDSL {
   val global: Global
 
   import global._
@@ -30,7 +31,7 @@ abstract class TreeGen extends reflect.internal.TreeGen {
     else
       tree
   }
-  
+
   /** Builds a fully attributed wildcard import node.
    */
   def mkWildcardImport(pkg: Symbol): Import = {
@@ -51,13 +52,12 @@ abstract class TreeGen extends reflect.internal.TreeGen {
   }
 
   // wrap the given expression in a SoftReference so it can be gc-ed
-  def mkSoftRef(expr: Tree): Tree = atPos(expr.pos) {
-    New(SoftReferenceClass, expr)
-  }
+  def mkSoftRef(expr: Tree): Tree = atPos(expr.pos)(New(SoftReferenceClass.tpe, expr))
+
   // annotate the expression with @unchecked
   def mkUnchecked(expr: Tree): Tree = atPos(expr.pos) {
     // This can't be "Annotated(New(UncheckedClass), expr)" because annotations
-    // are very pick about things and it crashes the compiler with "unexpected new".
+    // are very picky about things and it crashes the compiler with "unexpected new".
     Annotated(New(scalaDot(UncheckedClass.name), List(Nil)), expr)
   }
   // if it's a Match, mark the selector unchecked; otherwise nothing.
@@ -66,16 +66,56 @@ abstract class TreeGen extends reflect.internal.TreeGen {
     case _                      => tree
   }
 
-  def withDefaultCase(matchExpr: Tree, defaultAction: Tree/*scrutinee*/ => Tree): Tree = matchExpr match {
-    case Match(scrutinee, cases) =>
-      if (cases exists treeInfo.isDefaultCase) matchExpr
-      else {
-        val defaultCase = CaseDef(Ident(nme.WILDCARD), EmptyTree, defaultAction(scrutinee))
-        Match(scrutinee, cases :+ defaultCase)
-      }
-    case _ =>
-      matchExpr
-    // [Martin] Adriaan: please fill in virtpatmat transformation here
+  def mkSynthSwitchSelector(expr: Tree): Tree = atPos(expr.pos) {
+    // This can't be "Annotated(New(SwitchClass), expr)" because annotations
+    // are very picky about things and it crashes the compiler with "unexpected new".
+    Annotated(Ident(nme.synthSwitch), expr)
+  }
+
+  def hasSynthCaseSymbol(t: Tree) = (t.symbol ne null) && (t.symbol hasFlag (CASE | SYNTHETIC))
+
+  // TODO: would be so much nicer if we would know during match-translation (i.e., type checking)
+  // whether we should emit missingCase-style apply (and isDefinedAt), instead of transforming trees post-factum
+  class MatchMatcher {
+    def caseMatch(orig: Tree, selector: Tree, cases: List[CaseDef], wrap: Tree => Tree): Tree = unknownTree(orig)
+    def caseVirtualizedMatch(orig: Tree, _match: Tree, targs: List[Tree], scrut: Tree, matcher: Tree): Tree = unknownTree(orig)
+    def caseVirtualizedMatchOpt(orig: Tree, prologue: List[Tree], cases: List[Tree], matchEndDef: Tree, wrap: Tree => Tree): Tree = unknownTree(orig)
+
+    def genVirtualizedMatch(prologue: List[Tree], cases: List[Tree], matchEndDef: Tree): Tree = Block(prologue ++ cases, matchEndDef)
+
+    def apply(matchExpr: Tree): Tree = matchExpr match {
+      // old-style match or virtpatmat switch
+      case Match(selector, cases) => // println("simple match: "+ (selector, cases) + "for:\n"+ matchExpr )
+        caseMatch(matchExpr, selector, cases, identity)
+      // old-style match or virtpatmat switch
+      case Block((vd: ValDef) :: Nil, orig@Match(selector, cases)) => // println("block match: "+ (selector, cases, vd) + "for:\n"+ matchExpr )
+        caseMatch(matchExpr, selector, cases, m => copyBlock(matchExpr, List(vd), m))
+      // virtpatmat
+      case Apply(Apply(TypeApply(Select(tgt, nme.runOrElse), targs), List(scrut)), List(matcher)) if opt.virtPatmat => // println("virt match: "+ (tgt, targs, scrut, matcher) + "for:\n"+ matchExpr )
+        caseVirtualizedMatch(matchExpr, tgt, targs, scrut, matcher)
+      // optimized version of virtpatmat
+      case Block(stats, matchEndDef) if opt.virtPatmat && (stats forall hasSynthCaseSymbol) =>
+        // the assumption is once we encounter a case, the remainder of the block will consist of cases
+        // the prologue may be empty, usually it is the valdef that stores the scrut
+        val (prologue, cases) = stats span (s => !s.isInstanceOf[LabelDef])
+        caseVirtualizedMatchOpt(matchExpr, prologue, cases, matchEndDef, identity)
+      // optimized version of virtpatmat
+      case Block(outerStats, orig@Block(stats, matchEndDef)) if opt.virtPatmat && (stats forall hasSynthCaseSymbol) =>
+        val (prologue, cases) = stats span (s => !s.isInstanceOf[LabelDef])
+        caseVirtualizedMatchOpt(matchExpr, prologue, cases, matchEndDef, m => copyBlock(matchExpr, outerStats, m))
+      case other =>
+        unknownTree(other)
+    }
+
+    def unknownTree(t: Tree): Tree = throw new MatchError(t)
+    def copyBlock(orig: Tree, stats: List[Tree], expr: Tree): Block = Block(stats, expr)
+
+    def dropSyntheticCatchAll(cases: List[CaseDef]): List[CaseDef] =
+      if (!opt.virtPatmat) cases
+      else cases filter {
+             case CaseDef(pat, EmptyTree, Throw(Apply(Select(New(exTpt), nme.CONSTRUCTOR), _))) if (treeInfo.isWildcardArg(pat) && (exTpt.tpe.typeSymbol eq MatchErrorClass)) => false
+             case CaseDef(pat, guard, body) => true
+           }
   }
 
   def mkCached(cvar: Symbol, expr: Tree): Tree = {
@@ -98,7 +138,7 @@ abstract class TreeGen extends reflect.internal.TreeGen {
   def mkModuleVarDef(accessor: Symbol) = {
     val inClass    = accessor.owner.isClass
     val extraFlags = if (inClass) PrivateLocal | SYNTHETIC else 0
-    
+
     val mval = (
       accessor.owner.newVariable(nme.moduleVarName(accessor.name), accessor.pos.focus, MODULEVAR | extraFlags)
         setInfo accessor.tpe.finalResultType
@@ -118,10 +158,11 @@ abstract class TreeGen extends reflect.internal.TreeGen {
   def mkModuleAccessDef(accessor: Symbol, msym: Symbol) =
     DefDef(accessor, Select(This(msym.owner), msym))
 
-  def newModule(accessor: Symbol, tpe: Type) =
-    New(TypeTree(tpe),
-        List(for (pt <- tpe.typeSymbol.primaryConstructor.info.paramTypes)
-             yield This(accessor.owner.enclClass)))
+  def newModule(accessor: Symbol, tpe: Type) = {
+    val ps = tpe.typeSymbol.primaryConstructor.info.paramTypes
+    if (ps.isEmpty) New(tpe)
+    else New(tpe, This(accessor.owner.enclClass))
+  }
 
   // def m: T;
   def mkModuleAccessDcl(accessor: Symbol) =
@@ -156,6 +197,18 @@ abstract class TreeGen extends reflect.internal.TreeGen {
   def mkSynchronized(monitor: Tree, body: Tree): Tree =
     Apply(Select(monitor, Object_synchronized), List(body))
 
+  def mkAppliedTypeForCase(clazz: Symbol): Tree = {
+    val numParams = clazz.typeParams.size
+    if (clazz.typeParams.isEmpty) Ident(clazz)
+    else AppliedTypeTree(Ident(clazz), 1 to numParams map (_ => Bind(tpnme.WILDCARD, EmptyTree)) toList)
+  }
+  def mkBindForCase(patVar: Symbol, clazz: Symbol, targs: List[Type]): Tree = {
+    Bind(patVar, Typed(Ident(nme.WILDCARD),
+      if (targs.isEmpty) mkAppliedTypeForCase(clazz)
+      else AppliedTypeTree(Ident(clazz), targs map TypeTree)
+    ))
+  }
+
   def wildcardStar(tree: Tree) =
     atPos(tree.pos) { Typed(tree, Ident(tpnme.WILDCARD_STAR)) }
 
@@ -188,6 +241,22 @@ abstract class TreeGen extends reflect.internal.TreeGen {
     )
   }
 
+  /** Cast `tree` to type `pt` by creating
+   *  one of the calls of the form
+   *
+   *    x.asInstanceOf[`pt`]     up to phase uncurry
+   *    x.asInstanceOf[`pt`]()   if after uncurry but before erasure
+   *    x.$asInstanceOf[`pt`]()  if at or after erasure
+   */
+  def mkCast(tree: Tree, pt: Type): Tree = {
+    debuglog("casting " + tree + ":" + tree.tpe + " to " + pt + " at phase: " + phase)
+    assert(!tree.tpe.isInstanceOf[MethodType], tree)
+    assert(pt eq pt.normalize, tree +" : "+ debugString(pt) +" ~>"+ debugString(pt.normalize))
+    atPos(tree.pos) {
+      mkAsInstanceOf(tree, pt, any = !phase.next.erasedTypes, wrapInApply = isAtPhaseAfter(currentRun.uncurryPhase))
+    }
+  }
+
   /** Generate a cast for tree Tree representing Array with
    *  elem type elemtp to expected type pt.
    */
@@ -196,6 +265,25 @@ abstract class TreeGen extends reflect.internal.TreeGen {
       mkCast(mkRuntimeCall(nme.toObjectArray, List(tree)), pt)
     else
       mkCast(tree, pt)
+
+  def mkZeroContravariantAfterTyper(tp: Type): Tree = {
+    // contravariant -- for replacing an argument in a method call
+    // must use subtyping, as otherwise we miss types like `Any with Int`
+    val tree =
+      if      (NullClass.tpe    <:< tp) Literal(Constant(null))
+      else if (UnitClass.tpe    <:< tp) Literal(Constant())
+      else if (BooleanClass.tpe <:< tp) Literal(Constant(false))
+      else if (FloatClass.tpe   <:< tp) Literal(Constant(0.0f))
+      else if (DoubleClass.tpe  <:< tp) Literal(Constant(0.0d))
+      else if (ByteClass.tpe    <:< tp) Literal(Constant(0.toByte))
+      else if (ShortClass.tpe   <:< tp) Literal(Constant(0.toShort))
+      else if (IntClass.tpe     <:< tp) Literal(Constant(0))
+      else if (LongClass.tpe    <:< tp) Literal(Constant(0L))
+      else if (CharClass.tpe    <:< tp) Literal(Constant(0.toChar))
+      else mkCast(Literal(Constant(null)), tp)
+
+    tree
+  }
 
   /** Translate names in Select/Ident nodes to type names.
    */

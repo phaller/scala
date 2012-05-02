@@ -97,7 +97,7 @@ object BasicIO {
     *
     * @param withIn True if the process input should be attached to stdin.
     * @param buffer A `StringBuffer` which will receive the process normal
-    *               output. 
+    *               output.
     * @param log    An optional `ProcessLogger` to which the output should be
     *               sent. If `None`, output will be sent to stderr.
     * @return A `ProcessIO` with the characteristics above.
@@ -227,9 +227,10 @@ object BasicIO {
         out.write(buffer, 0, byteCount)
         // flush() will throw an exception once the process has terminated
         val available = try { out.flush(); true } catch { case _: IOException => false }
-        if (available) loop() else in.close()
-      } else in.close()
+        if (available) loop()
+      }
     }
     loop()
+    in.close()
   }
 }

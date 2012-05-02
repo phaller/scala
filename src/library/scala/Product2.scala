@@ -17,7 +17,7 @@ object Product2 {
 /** Product2 is a cartesian product of 2 components.
  *  @since 2.3
  */
-trait Product2[@specialized(Int, Long, Double) +T1, @specialized(Int, Long, Double) +T2] extends Product {
+trait Product2[@specialized(Int, Long, Double) +T1, @specialized(Int, Long, Double) +T2] extends Any with Product {
   /** The arity of this product.
    *  @return 2
    */
@@ -28,7 +28,7 @@ trait Product2[@specialized(Int, Long, Double) +T1, @specialized(Int, Long, Doub
    *  otherwise throws an `IndexOutOfBoundsException`.
    *
    *  @param n number of the projection to be returned
-   *  @return  same as `._(n+1)`, for example `productElement(1)` is the same as `._1`.
+   *  @return  same as `._(n+1)`, for example `productElement(0)` is the same as `._1`.
    *  @throws  IndexOutOfBoundsException
    */
 

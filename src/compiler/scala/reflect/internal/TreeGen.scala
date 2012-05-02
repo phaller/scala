@@ -1,20 +1,20 @@
 package scala.reflect
 package internal
 
-abstract class TreeGen {
+abstract class TreeGen extends api.AbsTreeGen {
   val global: SymbolTable
 
   import global._
   import definitions._
 
-  def rootId(name: Name)          = Select(Ident(nme.ROOTPKG), name)
-  def rootScalaDot(name: Name)    = Select(rootId(nme.scala_) setSymbol ScalaPackage, name)
-  def scalaDot(name: Name)        = Select(Ident(nme.scala_) setSymbol ScalaPackage, name)
-  def scalaAnyRefConstr           = scalaDot(tpnme.AnyRef)
-  def scalaUnitConstr             = scalaDot(tpnme.Unit)
-  def scalaScalaObjectConstr      = scalaDot(tpnme.ScalaObject)
-  def productConstr               = scalaDot(tpnme.Product)
-  def serializableConstr          = scalaDot(tpnme.Serializable)
+  def rootId(name: Name)             = Select(Ident(nme.ROOTPKG), name)
+  def rootScalaDot(name: Name)       = Select(rootId(nme.scala_) setSymbol ScalaPackage, name)
+  def scalaDot(name: Name)           = Select(Ident(nme.scala_) setSymbol ScalaPackage, name)
+  def scalaAnnotationDot(name: Name) = Select(scalaDot(nme.annotation), name)
+  def scalaAnyRefConstr              = scalaDot(tpnme.AnyRef) setSymbol AnyRefClass
+  def scalaUnitConstr                = scalaDot(tpnme.Unit) setSymbol UnitClass
+  def productConstr                  = scalaDot(tpnme.Product) setSymbol ProductRootClass
+  def serializableConstr             = scalaDot(tpnme.Serializable) setSymbol SerializableClass
 
   def scalaFunctionConstr(argtpes: List[Tree], restpe: Tree, abstractFun: Boolean = false): Tree = {
     val cls = if (abstractFun)
@@ -48,6 +48,9 @@ abstract class TreeGen {
 
   def mkMethodCall(target: Tree, targs: List[Type], args: List[Tree]): Tree =
     Apply(mkTypeApply(target, targs map TypeTree), args)
+
+  def mkNullaryCall(method: Symbol, targs: List[Type]): Tree =
+    mkTypeApply(mkAttributedRef(method), targs map TypeTree)
 
   /** Builds a reference to value whose type is given stable prefix.
    *  The type must be suitable for this.  For example, it
@@ -149,22 +152,6 @@ abstract class TreeGen {
       None
   }
 
-  /** Cast `tree` to type `pt` */
-  def mkCast(tree: Tree, pt: Type): Tree = {
-    debuglog("casting " + tree + ":" + tree.tpe + " to " + pt + " at phase: " + phase)
-    assert(!tree.tpe.isInstanceOf[MethodType], tree)
-    assert(!pt.typeSymbol.isPackageClass && !pt.typeSymbol.isPackageObjectClass, pt)
-    // called during (at least): typer, uncurry, explicitouter, cleanup.
-    // TODO: figure out the truth table for any/wrapInApply
-    // - the `any` flag seems to relate to erasure's adaptMember: "x.asInstanceOf[T] becomes x.$asInstanceOf[T]",
-    //   where asInstanceOf is Any_asInstanceOf and $asInstanceOf is Object_asInstanceOf
-    //   erasure will only unbox the value in a tree made by mkCast if `any && wrapInApply`
-    // - the `wrapInApply` flag need not be true if the tree will be adapted to have the empty argument list added before it gets to erasure
-    //   in fact, I think it should be false for trees that will be type checked during typer
-    assert(pt eq pt.normalize, tree +" : "+ debugString(pt) +" ~>"+ debugString(pt.normalize))
-    atPos(tree.pos)(mkAsInstanceOf(tree, pt, any = false, wrapInApply = true))
-  }
-
   /** Builds a reference with stable type to given symbol */
   def mkAttributedStableRef(pre: Type, sym: Symbol): Tree =
     stabilize(mkAttributedRef(pre, sym))
@@ -250,39 +237,22 @@ abstract class TreeGen {
    *    var x: T = _
    *  which is appropriate to the given Type.
    */
-  def mkZero(tp: Type): Tree = {
-    val tree = tp.typeSymbol match {
-      case UnitClass    => Literal(Constant())
-      case BooleanClass => Literal(Constant(false))
-      case FloatClass   => Literal(Constant(0.0f))
-      case DoubleClass  => Literal(Constant(0.0d))
-      case ByteClass    => Literal(Constant(0.toByte))
-      case ShortClass   => Literal(Constant(0.toShort))
-      case IntClass     => Literal(Constant(0))
-      case LongClass    => Literal(Constant(0L))
-      case CharClass    => Literal(Constant(0.toChar))
-      case _            => Literal(Constant(null))
-    }
-    tree setType tp
+  def mkZero(tp: Type): Tree = tp.typeSymbol match {
+    case NothingClass => mkMethodCall(Predef_???, Nil) setType NothingClass.tpe
+    case _            => Literal(mkConstantZero(tp)) setType tp
   }
 
-  def mkZeroContravariantAfterTyper(tp: Type): Tree = {
-    // contravariant -- for replacing an argument in a method call
-    // must use subtyping, as otherwise we miss types like `Any with Int`
-    val tree =
-      if      (NullClass.tpe    <:< tp) Literal(Constant(null))
-      else if (UnitClass.tpe    <:< tp) Literal(Constant())
-      else if (BooleanClass.tpe <:< tp) Literal(Constant(false))
-      else if (FloatClass.tpe   <:< tp) Literal(Constant(0.0f))
-      else if (DoubleClass.tpe  <:< tp) Literal(Constant(0.0d))
-      else if (ByteClass.tpe    <:< tp) Literal(Constant(0.toByte))
-      else if (ShortClass.tpe   <:< tp) Literal(Constant(0.toShort))
-      else if (IntClass.tpe     <:< tp) Literal(Constant(0))
-      else if (LongClass.tpe    <:< tp) Literal(Constant(0L))
-      else if (CharClass.tpe    <:< tp) Literal(Constant(0.toChar))
-      else mkCast(Literal(Constant(null)), tp)
-
-    tree
+  def mkConstantZero(tp: Type): Constant = tp.typeSymbol match {
+    case UnitClass    => Constant(())
+    case BooleanClass => Constant(false)
+    case FloatClass   => Constant(0.0f)
+    case DoubleClass  => Constant(0.0d)
+    case ByteClass    => Constant(0.toByte)
+    case ShortClass   => Constant(0.toShort)
+    case IntClass     => Constant(0)
+    case LongClass    => Constant(0L)
+    case CharClass    => Constant(0.toChar)
+    case _            => Constant(null)
   }
 
   /** Builds a tuple */

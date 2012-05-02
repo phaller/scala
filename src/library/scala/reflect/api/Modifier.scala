@@ -2,7 +2,7 @@ package scala.reflect.api
 
 import collection.{ immutable, mutable }
 
-sealed abstract class Modifier {
+abstract class Modifier private[api] () {
   def name: String
   def isKeyword: Boolean
   def sourceString: String = if (isKeyword) "`" + name + "`" else name
@@ -69,7 +69,7 @@ object Modifier extends immutable.Set[Modifier] {
   val parameter        = SymbolModifier("parameter")
   val preSuper         = SymbolModifier("preSuper")
   val static           = SymbolModifier("static")
-  
+
   val sourceModifiers: Set[SourceModifier] = SourceModifier.all.toSet
   val symbolModifiers: Set[SymbolModifier] = SymbolModifier.all.toSet
   val allModifiers: Set[Modifier]          = sourceModifiers ++ symbolModifiers

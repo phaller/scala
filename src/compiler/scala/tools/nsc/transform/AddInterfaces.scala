@@ -11,7 +11,7 @@ import Flags._
 import scala.collection.{ mutable, immutable }
 import collection.mutable.ListBuffer
 
-abstract class AddInterfaces extends InfoTransform {
+abstract class AddInterfaces extends InfoTransform { self: Erasure =>
   import global._                  // the global environment
   import definitions._             // standard classes and methods
 
@@ -20,14 +20,6 @@ abstract class AddInterfaces extends InfoTransform {
    *  methods in such traits.
    */
   override def phaseNewFlags: Long = lateDEFERRED | lateINTERFACE
-
-  /** Type reference after erasure; defined in Erasure.
-   */
-  def erasedTypeRef(sym: Symbol): Type
-
-  /** Erasure calculation; defined in Erasure.
-   */
-  def erasure(sym: Symbol, tpe: Type): Type
 
   /** A lazily constructed map that associates every non-interface trait with
    *  its implementation class.
@@ -51,11 +43,7 @@ abstract class AddInterfaces extends InfoTransform {
    */
   private def isInterfaceMember(sym: Symbol) = (
     sym.isType || {
-      // !!! Shouldn't the following code be equivalent to leaving
-      // out the "sym.info" call and starting with "sym.initialize.isMethod" ?
-      // Because, it is not, which I found a little disturbing.  The compiler
-      // fails to bootstrap with an error somewhere.
-      sym.info    // initialize to set lateMETHOD flag if necessary
+      sym.info  // initialize to set lateMETHOD flag if necessary
 
       (     sym.isMethod
         && !sym.isLabel
@@ -76,55 +64,60 @@ abstract class AddInterfaces extends InfoTransform {
 
   def implClassPhase = currentRun.erasurePhase.next
 
-  /** Return the implementation class of a trait; create a new one of one does not yet exist */
-  def implClass(iface: Symbol): Symbol = {
-    iface.info
+  private def newImplClass(iface: Symbol): Symbol = {
+    val inClass   = iface.owner.isClass
+    val implName  = tpnme.implClassName(iface.name)
+    val implFlags = (iface.flags & ~(INTERFACE | lateINTERFACE)) | IMPLCLASS
 
-    implClassMap.getOrElse(iface, {
-      atPhase(implClassPhase) {
-        log("%s.implClass == %s".format(iface, iface.implClass))
-        val implName = nme.implClassName(iface.name)
-        var impl     = if (iface.owner.isClass) iface.owner.info.decl(implName) else NoSymbol
-
-        // !!! Why does forcing the impl's info here lead to a crash?
-        // See test case pos/trait-force-info.scala for a minimization.
-        // It crashes like this:
-        //
-        // [log lazyvals] trait ContextTrees.implClass == class ContextTrees$class
-        // error: java.lang.AssertionError: assertion failed: (scala.tools.nsc.typechecker.Contexts$NoContext$,scala.tools.nsc.typechecker.Contexts,NoContext$,trait Contexts in package typechecker) /  while parsing (/scala/trunk/build/pack/lib/scala-compiler.jar(scala/tools/nsc/interactive/ContextTrees$class.class),Some(class ContextTrees$class))trait Contexts.NoContext$ linkedModule: <none>List()
-
-        val originalImpl = impl
-        if (impl != NoSymbol) {
+    val impl0 = (
+      if (!inClass) NoSymbol
+      else iface.owner.info.decl(implName) match {
+        case NoSymbol => NoSymbol
+        case implSym  =>
           // Unlink a pre-existing symbol only if the implementation class is
           // visible on the compilation classpath.  In general this is true under
           // -optimise and not otherwise, but the classpath can use arbitrary
           // logic so the classpath must be queried.
           if (classPath.context.isValidName(implName + ".class")) {
-            log("unlinking impl class " + impl)
-            iface.owner.info.decls.unlink(impl)
-            impl = NoSymbol
+            log("unlinking impl class " + implSym)
+            iface.owner.info.decls unlink implSym
+            NoSymbol
           }
-          else log("not unlinking existing " + impl + " as the impl class is not visible on the classpath.")
-        }
-        if (impl == NoSymbol) {
-          impl = iface.cloneSymbolImpl(iface.owner)
-          impl.name = implName
-          impl.sourceFile = iface.sourceFile
-          if (iface.owner.isClass)
-            iface.owner.info.decls enter impl
-        }
-        if (currentRun.compiles(iface)) currentRun.symSource(impl) = iface.sourceFile
-        impl setPos iface.pos
-        impl.flags = iface.flags & ~(INTERFACE | lateINTERFACE) | IMPLCLASS
-        impl setInfo new LazyImplClassType(iface)
-        implClassMap(iface) = impl
-        debuglog(
-          "generating impl class " + impl.debugLocationString + " in " + iface.owner + (
-            if (originalImpl == NoSymbol) "" else " (cloned from " + originalImpl.debugLocationString + ")"
-          )
-        )
-        impl
+          else {
+            log("not unlinking existing " + implSym + " as the impl class is not visible on the classpath.")
+            implSym
+          }
       }
+    )
+    val impl = impl0 orElse {
+      val impl = iface.owner.newImplClass(implName, iface.pos, implFlags)
+      if (iface.thisSym != iface) {
+        impl.typeOfThis = iface.typeOfThis
+        impl.thisSym setName iface.thisSym.name
+      }
+      impl.sourceFile = iface.sourceFile
+      if (inClass)
+        iface.owner.info.decls enter impl
+
+      impl
+    }
+    if (currentRun compiles iface)
+      currentRun.symSource(impl) = iface.sourceFile
+
+    implClassMap(iface) = impl
+    impl setInfo new LazyImplClassType(iface)
+  }
+
+  /** Return the implementation class of a trait; create a new one of one does not yet exist */
+  def implClass(iface: Symbol): Symbol = {
+    iface.info
+
+    implClassMap.getOrElse(iface, atPhase(implClassPhase) {
+      log("Creating implClass for " + iface)
+      if (iface.implClass ne NoSymbol)
+        log("%s.implClass already exists: %s".format(iface, iface.implClass))
+
+      newImplClass(iface)
     })
   }
 
@@ -144,22 +137,31 @@ abstract class AddInterfaces extends InfoTransform {
      *  given the decls ifaceDecls of its interface.
      */
     private def implDecls(implClass: Symbol, ifaceDecls: Scope): Scope = {
+      log("LazyImplClassType calculating decls for " + implClass)
+
       val decls = newScope
-      if ((ifaceDecls lookup nme.MIXIN_CONSTRUCTOR) == NoSymbol)
+      if ((ifaceDecls lookup nme.MIXIN_CONSTRUCTOR) == NoSymbol) {
+        log("Adding mixin constructor to " + implClass)
+
         decls enter (
           implClass.newMethod(nme.MIXIN_CONSTRUCTOR, implClass.pos)
             setInfo MethodType(Nil, UnitClass.tpe)
         )
+      }
 
-      for (sym <- ifaceDecls.iterator) {
+      for (sym <- ifaceDecls) {
         if (isInterfaceMember(sym)) {
           if (needsImplMethod(sym)) {
-            val impl = sym.cloneSymbol(implClass).resetFlag(lateDEFERRED)
-            if (currentRun.compiles(implClass)) implMethodMap(sym) = impl
-            decls enter impl
+            log("Cloning " + sym + " for implementation method in " + implClass)
+            val clone = sym.cloneSymbol(implClass).resetFlag(lateDEFERRED)
+            if (currentRun.compiles(implClass)) implMethodMap(sym) = clone
+            decls enter clone
             sym setFlag lateDEFERRED
           }
-        } else {
+          else log(sym + " needs no implementation method in " + implClass)
+        }
+        else {
+          log("Destructively modifying owner of %s from %s to %s".format(sym, sym.owner, implClass))
           sym.owner = implClass
           // note: OK to destructively modify the owner here,
           // because symbol will not be accessible from outside the sourcefile.
@@ -167,33 +169,34 @@ abstract class AddInterfaces extends InfoTransform {
           decls enter sym
         }
       }
+
       decls
     }
 
-    override def complete(sym: Symbol) {
+    override def complete(implSym: Symbol) {
+      log("LazyImplClassType completing " + implSym)
+
       /** If `tp` refers to a non-interface trait, return a
        *  reference to its implementation class. Otherwise return `tp`.
        */
-      def mixinToImplClass(tp: Type): Type = erasure(sym,
+      def mixinToImplClass(tp: Type): Type = AddInterfaces.this.erasure(implSym) {
         tp match { //@MATN: no normalize needed (comes after erasure)
           case TypeRef(pre, sym, _) if sym.needsImplClass =>
             typeRef(pre, implClass(sym), Nil)
           case _ =>
             tp
         }
-      )
+      }
       def implType(tp: Type): Type = tp match {
         case ClassInfoType(parents, decls, _) =>
           assert(phase == implClassPhase, tp)
-          ClassInfoType(
-            ObjectClass.tpe +: (parents.tail map mixinToImplClass filter (_.typeSymbol != ObjectClass)) :+ iface.tpe,
-            implDecls(sym, decls),
-            sym
-          )
+          // Impl class parents: Object first, matching interface last.
+          val implParents = ObjectClass.tpe +: (parents.tail map mixinToImplClass filter (_.typeSymbol != ObjectClass)) :+ iface.tpe
+          ClassInfoType(implParents, implDecls(implSym, decls), implSym)
         case PolyType(_, restpe) =>
           implType(restpe)
       }
-      sym setInfo implType(atPhase(currentRun.erasurePhase)(iface.info))
+      implSym setInfo implType(beforeErasure(iface.info))
     }
 
     override def load(clazz: Symbol) { complete(clazz) }
@@ -270,11 +273,10 @@ abstract class AddInterfaces extends InfoTransform {
     else DefDef(clazz.primaryConstructor, Block(List(), Literal(Constant()))) :: stats
 
   private def implTemplate(clazz: Symbol, templ: Template): Template = atPos(templ.pos) {
-    val templ1 = atPos(templ.pos) {
-      Template(templ.parents, emptyValDef,
-               addMixinConstructorDef(clazz, templ.body map implMemberDef))
-        .setSymbol(clazz.newLocalDummy(templ.pos))
-    }
+    val templ1 = (
+      Template(templ.parents, emptyValDef, addMixinConstructorDef(clazz, templ.body map implMemberDef))
+        setSymbol clazz.newLocalDummy(templ.pos)
+    )
     templ1.changeOwner(templ.symbol.owner -> clazz, templ.symbol -> templ1.symbol)
     templ1
   }
@@ -297,14 +299,22 @@ abstract class AddInterfaces extends InfoTransform {
     }
     val mixinConstructorCalls: List[Tree] = {
       for (mc <- clazz.mixinClasses.reverse
-           if mc.hasFlag(lateINTERFACE) && mc != ScalaObjectClass)
+           if mc.hasFlag(lateINTERFACE))
       yield mixinConstructorCall(implClass(mc))
     }
-    (tree: @unchecked) match {
+    tree match {
+      case Block(Nil, expr) =>
+        // AnyVal constructor - have to provide a real body so the
+        // jvm doesn't throw a VerifyError. But we can't add the
+        // body until now, because the typer knows that Any has no
+        // constructor and won't accept a call to super.init.
+        assert((clazz isSubClass AnyValClass) || clazz.info.parents.isEmpty, clazz)
+        val superCall = Apply(Select(Super(This(tpnme.EMPTY), tpnme.EMPTY), nme.CONSTRUCTOR), Nil)
+        Block(List(superCall), expr)
+
       case Block(stats, expr) =>
         // needs `hasSymbol` check because `supercall` could be a block (named / default args)
         val (presuper, supercall :: rest) = stats span (t => t.hasSymbolWhich(_ hasFlag PRESUPER))
-        // assert(supercall.symbol.isClassConstructor, supercall)
         treeCopy.Block(tree, presuper ::: (supercall :: mixinConstructorCalls ::: rest), expr)
     }
   }
@@ -316,13 +326,11 @@ abstract class AddInterfaces extends InfoTransform {
     override def transform(tree: Tree): Tree = {
       val sym = tree.symbol
       val tree1 = tree match {
-        case ClassDef(mods, name, tparams, impl) if (sym.needsImplClass) =>
+        case ClassDef(mods, _, _, impl) if sym.needsImplClass =>
           implClass(sym).initialize // to force lateDEFERRED flags
-          treeCopy.ClassDef(tree, mods | INTERFACE, name, tparams, ifaceTemplate(impl))
-        case DefDef(mods, name, tparams, vparamss, tpt, rhs)
-        if (sym.isClassConstructor && sym.isPrimaryConstructor && sym.owner != ArrayClass) =>
-          treeCopy.DefDef(tree, mods, name, tparams, vparamss, tpt,
-                      addMixinConstructorCalls(rhs, sym.owner)) // (3)
+          copyClassDef(tree)(mods = mods | INTERFACE, impl = ifaceTemplate(impl))
+        case DefDef(_,_,_,_,_,_) if sym.isClassConstructor && sym.isPrimaryConstructor && sym.owner != ArrayClass =>
+          deriveDefDef(tree)(addMixinConstructorCalls(_, sym.owner)) // (3)
         case Template(parents, self, body) =>
           val parents1 = sym.owner.info.parents map (t => TypeTree(t) setPos tree.pos)
           treeCopy.Template(tree, parents1, emptyValDef, body)
@@ -339,7 +347,7 @@ abstract class AddInterfaces extends InfoTransform {
           val mix1 = mix
             if (mix == tpnme.EMPTY) mix
             else {
-              val ps = atPhase(currentRun.erasurePhase) {
+              val ps = beforeErasure {
                 sym.info.parents dropWhile (p => p.symbol.name != mix)
               }
               assert(!ps.isEmpty, tree);

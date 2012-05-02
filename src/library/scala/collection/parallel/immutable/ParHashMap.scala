@@ -8,6 +8,8 @@
 
 package scala.collection.parallel.immutable
 
+
+
 import scala.collection.parallel.ParMapLike
 import scala.collection.parallel.Combiner
 import scala.collection.parallel.IterableSplitter
@@ -19,6 +21,9 @@ import scala.collection.generic.GenericParMapTemplate
 import scala.collection.generic.GenericParMapCompanion
 import scala.collection.immutable.{ HashMap, TrieIterator }
 import annotation.unchecked.uncheckedVariance
+import collection.parallel.Task
+
+
 
 /** Immutable parallel hash map, based on hash tries.
  *
@@ -31,7 +36,9 @@ import annotation.unchecked.uncheckedVariance
  *
  *  @author Aleksandar Prokopec
  *  @since 2.9
- *
+ *  @see  [[http://docs.scala-lang.org/overviews/parallel-collections/concrete-parallel-collections.html#parallel_hash_tries Scala's Parallel Collections Library overview]]
+ *  section on Parallel Hash Tries for more information.
+  *
  *  @define Coll immutable.ParHashMap
  *  @define coll immutable parallel hash map
  */
@@ -111,7 +118,9 @@ self =>
     def remaining = sz - i
     override def toString = "HashTrieIterator(" + sz + ")"
   }
-
+  
+  /* debug */
+  
   private[parallel] def printDebugInfo() {
     println("Parallel hash trie")
     println("Top level inner trie type: " + trie.getClass)
@@ -153,7 +162,6 @@ private[parallel] abstract class HashMapCombiner[K, V]
 extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), HashMapCombiner[K, V]](HashMapCombiner.rootsize) {
 //self: EnvironmentPassingCombiner[(K, V), ParHashMap[K, V]] =>
   import HashMapCombiner._
-  import collection.parallel.tasksupport._
   val emptyTrie = HashMap.empty[K, V]
 
   def +=(elem: (K, V)) = {
@@ -173,7 +181,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
     val bucks = buckets.filter(_ != null).map(_.headPtr)
     val root = new Array[HashMap[K, V]](bucks.length)
 
-    executeAndWaitResult(new CreateTrie(bucks, root, 0, bucks.length))
+    combinerTaskSupport.executeAndWaitResult(new CreateTrie(bucks, root, 0, bucks.length))
 
     var bitmap = 0
     var i = 0
@@ -195,7 +203,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
     val bucks = buckets.filter(_ != null).map(_.headPtr)
     val root = new Array[HashMap[K, AnyRef]](bucks.length)
 
-    executeAndWaitResult(new CreateGroupedTrie(cbf, bucks, root, 0, bucks.length))
+    combinerTaskSupport.executeAndWaitResult(new CreateGroupedTrie(cbf, bucks, root, 0, bucks.length))
 
     var bitmap = 0
     var i = 0
@@ -256,7 +264,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
       val fp = howmany / 2
       List(new CreateTrie(bucks, root, offset, fp), new CreateTrie(bucks, root, offset + fp, howmany - fp))
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, parallelismLevel)
+    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, combinerTaskSupport.parallelismLevel)
   }
 
   class CreateGroupedTrie[Repr](cbf: () => Combiner[V, Repr], bucks: Array[Unrolled[(K, V)]], root: Array[HashMap[K, AnyRef]], offset: Int, howmany: Int)
@@ -321,7 +329,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
       val fp = howmany / 2
       List(new CreateGroupedTrie(cbf, bucks, root, offset, fp), new CreateGroupedTrie(cbf, bucks, root, offset + fp, howmany - fp))
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, parallelismLevel)
+    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, combinerTaskSupport.parallelismLevel)
   }
 
 }

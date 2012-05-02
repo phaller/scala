@@ -38,7 +38,7 @@ trait ParsersCommon extends ScannersCommon {
     def freshTypeName(prefix: String): TypeName
     def deprecationWarning(off: Int, msg: String): Unit
     def accept(token: Int): Int
-  
+
     /** Methods inParensOrError and similar take a second argument which, should
      *  the next token not be the expected opener (e.g. LPAREN) will be returned
      *  instead of the contents of the groupers.  However in all cases accept(LPAREN)
@@ -70,6 +70,9 @@ trait ParsersCommon extends ScannersCommon {
 
     @inline final def inBracesOrNil[T](body: => List[T]): List[T] = inBracesOrError(body, Nil)
     @inline final def inBracesOrUnit[T](body: => Tree): Tree = inBracesOrError(body, Literal(Constant()))
+    @inline final def dropAnyBraces[T](body: => T): T =
+      if (in.token == LBRACE) inBraces(body)
+      else body
 
     @inline final def inBrackets[T](body: => T): T = {
       accept(LBRACKET)
@@ -249,6 +252,8 @@ self =>
   final val InBlock = 1
   final val InTemplate = 2
 
+  lazy val ScalaValueClassNames = tpnme.AnyVal :: definitions.ScalaValueClasses.map(_.name)
+
   import nme.raw
 
   abstract class Parser extends ParserCommon {
@@ -290,11 +295,11 @@ self =>
       inScalaPackage = false
       currentPackage = ""
     }
-    private lazy val anyValNames: Set[Name] = tpnme.ScalaValueNames.toSet + tpnme.AnyVal
+    private lazy val primitiveNames: Set[Name] = tpnme.ScalaValueNames.toSet
 
     private def inScalaRootPackage       = inScalaPackage && currentPackage == "scala"
     private def isScalaArray(name: Name) = inScalaRootPackage && name == tpnme.Array
-    private def isAnyValType(name: Name) = inScalaRootPackage && anyValNames(name)
+    private def isPrimitiveType(name: Name) = inScalaRootPackage && primitiveNames(name)
 
     def parseStartRule: () => Tree
 
@@ -312,7 +317,7 @@ self =>
      *  by compilationUnit().
      */
     def scriptBody(): Tree = {
-      val stmts = templateStatSeq(false)._2
+      val stmts = templateStats()
       accept(EOF)
 
       def mainModuleName = newTermName(settings.script.value)
@@ -392,7 +397,7 @@ self =>
 
       // object Main
       def moduleName  = newTermName(ScriptRunner scriptMain settings)
-      def moduleBody  = Template(List(scalaScalaObjectConstr), emptyValDef, List(emptyInit, mainDef))
+      def moduleBody  = Template(List(atPos(o2p(in.offset))(scalaAnyRefConstr)), emptyValDef, List(emptyInit, mainDef))
       def moduleDef   = ModuleDef(NoMods, moduleName, moduleBody)
 
       // package <empty> { ... }
@@ -658,7 +663,8 @@ self =>
             DocDef(doc, t) setPos {
               if (t.pos.isDefined) {
                 val pos = doc.pos.withEnd(t.pos.endOrPoint)
-                if (t.pos.isOpaqueRange) pos else pos.makeTransparent
+                // always make the position transparent
+                pos.makeTransparent
               } else {
                 t.pos
               }
@@ -1103,7 +1109,7 @@ self =>
      *  }}}
      *  @note  The returned tree does not yet have a position
      */
-    def literal(isNegated: Boolean = false): Tree = {
+    def literal(isNegated: Boolean = false, inPattern: Boolean = false): Tree = {
       def finish(value: Any): Tree = {
         val t = Literal(Constant(value))
         in.nextToken()
@@ -1112,7 +1118,7 @@ self =>
       if (in.token == SYMBOLLIT)
         Apply(scalaDot(nme.Symbol), List(finish(in.strVal)))
       else if (in.token == INTERPOLATIONID)
-        interpolatedString()
+        interpolatedString(inPattern)
       else finish(in.token match {
         case CHARLIT   => in.charVal
         case INTLIT    => in.intVal(isNegated).toInt
@@ -1138,22 +1144,25 @@ self =>
       }
     }
 
-    private def interpolatedString(): Tree = atPos(in.offset) {
+    private def interpolatedString(inPattern: Boolean = false): Tree = atPos(in.offset) {
       val start = in.offset
       val interpolator = in.name
-      
+
       val partsBuf = new ListBuffer[Tree]
       val exprBuf = new ListBuffer[Tree]
       in.nextToken()
       while (in.token == STRINGPART) {
         partsBuf += literal()
         exprBuf += {
-          if (in.token == IDENTIFIER) atPos(in.offset)(Ident(ident()))
-          else expr()
+          if (inPattern) dropAnyBraces(pattern())
+          else {
+            if (in.token == IDENTIFIER) atPos(in.offset)(Ident(ident()))
+            else expr()
+          }
         }
       }
       if (in.token == STRINGLIT) partsBuf += literal()
-      
+
       val t1 = atPos(o2p(start)) { Ident(nme.StringContext) }
       val t2 = atPos(start) { Apply(t1, partsBuf.toList) }
       t2 setPos t2.pos.makeTransparent
@@ -1205,7 +1214,7 @@ self =>
      */
     def wildcardType(start: Int) = {
       val pname = freshTypeName("_$")
-      val t = atPos(start) { Ident(pname) }
+      val t = atPos(start)(Ident(pname))
       val bounds = typeBounds()
       val param = atPos(t.pos union bounds.pos) { makeSyntheticTypeParam(pname, bounds) }
       placeholderTypes = param :: placeholderTypes
@@ -1391,13 +1400,7 @@ self =>
             }
           }
         } else if (in.token == MATCH) {
-          t = atPos(t.pos.startOrPoint, in.skipToken()) {
-            /** For debugging pattern matcher transition issues */
-            if (settings.Ypmatnaive.value)
-              makeSequencedMatch(stripParens(t), inBracesOrNil(caseClauses()))
-            else
-              Match(stripParens(t), inBracesOrNil(caseClauses()))
-          }
+          t = atPos(t.pos.startOrPoint, in.skipToken())(Match(stripParens(t), inBracesOrNil(caseClauses())))
         }
         // in order to allow anonymous functions as statements (as opposed to expressions) inside
         // templates, we have to disambiguate them from self type declarations - bug #1565
@@ -1423,15 +1426,14 @@ self =>
     def implicitClosure(start: Int, location: Int): Tree = {
       val param0 = convertToParam {
         atPos(in.offset) {
-          var paramexpr: Tree = Ident(ident())
-          if (in.token == COLON) {
-            in.nextToken()
-            paramexpr = Typed(paramexpr, typeOrInfixType(location))
+          Ident(ident()) match {
+            case expr if in.token == COLON  =>
+              in.nextToken() ; Typed(expr, typeOrInfixType(location))
+            case expr => expr
           }
-          paramexpr
         }
       }
-      val param = treeCopy.ValDef(param0, param0.mods | Flags.IMPLICIT, param0.name, param0.tpt, param0.rhs)
+      val param = copyValDef(param0)(mods = param0.mods | Flags.IMPLICIT)
       atPos(start, in.offset) {
         accept(ARROW)
         Function(List(param), if (location != InBlock) expr() else block())
@@ -1460,11 +1462,12 @@ self =>
             return reduceStack(true, base, top, 0, true)
           top = next
         } else {
+          // postfix expression
           val topinfo = opstack.head
           opstack = opstack.tail
           val od = stripParens(reduceStack(true, base, topinfo.operand, 0, true))
           return atPos(od.pos.startOrPoint, topinfo.offset) {
-            Select(od, topinfo.operator.encode)
+            new PostfixSelect(od, topinfo.operator.encode)
           }
         }
       }
@@ -1702,11 +1705,11 @@ self =>
      *  was threaded through methods as boolean seqOK.
      */
     trait SeqContextSensitive extends PatternContextSensitive {
-      /** Returns Some(tree) if it finds a star and prematurely ends parsing.
-       *  This is an artifact of old implementation which has proven difficult
-       *  to cleanly extract.
-       */
-      def interceptStarPattern(top: Tree): Option[Tree]
+      // is a sequence pattern _* allowed?
+      def isSequenceOK: Boolean
+
+      // are we in an XML pattern?
+      def isXML: Boolean = false
 
       def functionArgType(): Tree = argType()
       def argType(): Tree = {
@@ -1775,7 +1778,9 @@ self =>
        *  }}}
        */
       def pattern2(): Tree = {
+        val nameOffset = in.offset
         val p = pattern3()
+
         if (in.token != AT) p
         else p match {
           case Ident(nme.WILDCARD) =>
@@ -1791,24 +1796,74 @@ self =>
       /** {{{
        *  Pattern3    ::= SimplePattern
        *                |  SimplePattern {Id [nl] SimplePattern}
-       *  SeqPattern3 ::= SeqSimplePattern [ `*' | `?' | `+' ]
-       *                |  SeqSimplePattern {Id [nl] SeqSimplePattern}
        *  }}}
        */
       def pattern3(): Tree = {
+        var top = simplePattern(badPattern3)
+        // after peekahead
+        def acceptWildStar() = atPos(top.pos.startOrPoint, in.prev.offset)(Star(stripParens(top)))
+        def peekahead() = {
+          in.prev copyFrom in
+          in.nextToken()
+        }
+        def pushback() = {
+          in.next copyFrom in
+          in copyFrom in.prev
+        }
+        // See SI-3189, SI-4832 for motivation. Cf SI-3480 for counter-motivation.
+        // TODO: dredge out the remnants of regexp patterns.
+        // /{/ peek for _*) or _*} (for xml escape)
+        if (isSequenceOK) {
+          top match {
+            case Ident(nme.WILDCARD) if (isRawStar) =>
+              peekahead()
+              in.token match {
+                case RBRACE if (isXML) => return acceptWildStar()
+                case RPAREN if (!isXML) => return acceptWildStar()
+                case _ => pushback()
+              }
+            case _ =>
+          }
+        }
         val base = opstack
-        var top = simplePattern()
-        interceptStarPattern(top) foreach { x => return x }
-
         while (isIdent && in.name != raw.BAR) {
-          top = reduceStack(
-            false, base, top, precedence(in.name), treeInfo.isLeftAssoc(in.name))
+          top = reduceStack(false, base, top, precedence(in.name), treeInfo.isLeftAssoc(in.name))
           val op = in.name
           opstack = OpInfo(top, op, in.offset) :: opstack
           ident()
-          top = simplePattern()
+          top = simplePattern(badPattern3)
         }
         stripParens(reduceStack(false, base, top, 0, true))
+      }
+      def badPattern3(): Tree = {
+        def isComma = in.token == COMMA
+        def isAnyBrace = in.token == RPAREN || in.token == RBRACE
+        val badStart = "illegal start of simple pattern"
+        // better recovery if don't skip delims of patterns
+        var skip = !(isComma || isAnyBrace)
+        val msg = if (!opstack.isEmpty && opstack.head.operator == nme.STAR) {
+            opstack.head.operand match {
+              case Ident(nme.WILDCARD) =>
+                if (isSequenceOK && isComma)
+                  "bad use of _* (a sequence pattern must be the last pattern)"
+                else if (isSequenceOK && isAnyBrace) {
+                  skip = true  // do skip bad paren; scanner may skip bad brace already
+                  "bad brace or paren after _*"
+                } else if (!isSequenceOK && isAnyBrace)
+                  "bad use of _* (sequence pattern not allowed)"
+                else badStart
+              case _ =>
+                if (isSequenceOK && isAnyBrace)
+                  "use _* to match a sequence"
+                else if (isComma || isAnyBrace)
+                  "trailing * is not a valid pattern"
+                else badStart
+            }
+          } else {
+            badStart
+          }
+        syntaxErrorOrIncomplete(msg, skip)
+        errorPatternTree
       }
 
       /** {{{
@@ -1816,20 +1871,23 @@ self =>
        *                    |  `_'
        *                    |  literal
        *                    |  XmlPattern
-       *                    |  StableId  [TypeArgs] [`(' [SeqPatterns] `)']
+       *                    |  StableId  /[TypeArgs]/ [`(' [Patterns] `)']
+       *                    |  StableId  [`(' [Patterns] `)']
+       *                    |  StableId  [`(' [Patterns] `,' [varid `@'] `_' `*' `)']
        *                    |  `(' [Patterns] `)'
-       *  SimpleSeqPattern ::= varid
-       *                    |  `_'
-       *                    |  literal
-       *                    |  XmlPattern
-       *                    |  `<' xLiteralPattern
-       *                    |  StableId [TypeArgs] [`(' [SeqPatterns] `)']
-       *                    |  `(' [SeqPatterns] `)'
        *  }}}
        *
        * XXX: Hook for IDE
        */
       def simplePattern(): Tree = {
+        // simple diagnostics for this entry point
+        def badStart(): Tree = {
+          syntaxErrorOrIncomplete("illegal start of simple pattern", true)
+          errorPatternTree
+        }
+        simplePattern(badStart)
+      }
+      def simplePattern(onError: () => Tree): Tree = {
         val start = in.offset
         in.token match {
           case IDENTIFIER | BACKQUOTED_IDENT | THIS =>
@@ -1838,7 +1896,7 @@ self =>
               case INTLIT | LONGLIT | FLOATLIT | DOUBLELIT =>
                 t match {
                   case Ident(nme.MINUS) =>
-                    return atPos(start) { literal(isNegated = true) }
+                    return atPos(start) { literal(isNegated = true, inPattern = true) }
                   case _ =>
                 }
               case _ =>
@@ -1856,14 +1914,13 @@ self =>
             atPos(start, start) { Ident(nme.WILDCARD) }
           case CHARLIT | INTLIT | LONGLIT | FLOATLIT | DOUBLELIT |
                STRINGLIT | INTERPOLATIONID | SYMBOLLIT | TRUE | FALSE | NULL =>
-            atPos(start) { literal() }
+            atPos(start) { literal(inPattern = true) }
           case LPAREN =>
             atPos(start)(makeParens(noSeq.patterns()))
           case XMLSTART =>
             xmlLiteralPattern()
           case _ =>
-            syntaxErrorOrIncomplete("illegal start of simple pattern", true)
-            errorPatternTree
+            onError()
         }
       }
     }
@@ -1874,16 +1931,16 @@ self =>
     }
     /** The implementation for parsing inside of patterns at points where sequences are allowed. */
     object seqOK extends SeqContextSensitive {
-      // See ticket #3189 for the motivation for the null check.
-      // TODO: dredge out the remnants of regexp patterns.
-      // ... and now this is back the way it was because it caused #3480.
-      def interceptStarPattern(top: Tree): Option[Tree] =
-        if (isRawStar) Some(atPos(top.pos.startOrPoint, in.skipToken())(Star(stripParens(top))))
-        else None
+      val isSequenceOK = true
     }
     /** The implementation for parsing inside of patterns at points where sequences are disallowed. */
     object noSeq extends SeqContextSensitive {
-      def interceptStarPattern(top: Tree) = None
+      val isSequenceOK = false
+    }
+    /** For use from xml pattern, where sequence is allowed and encouraged. */
+    object xmlSeqOK extends SeqContextSensitive {
+      val isSequenceOK = true
+      override val isXML = true
     }
     /** These are default entry points into the pattern context sensitive methods:
      *  they are all initiated from non-pattern context.
@@ -1897,7 +1954,8 @@ self =>
     /** Default entry points into some pattern contexts. */
     def pattern(): Tree = noSeq.pattern()
     def patterns(): List[Tree] = noSeq.patterns()
-    def seqPatterns(): List[Tree] = seqOK.patterns() // Also called from xml parser
+    def seqPatterns(): List[Tree] = seqOK.patterns()
+    def xmlSeqPatterns(): List[Tree] = xmlSeqOK.patterns() // Called from xml parser
     def argumentPatterns(): List[Tree] = inParens {
       if (in.token == RPAREN) Nil
       else seqPatterns()
@@ -2425,10 +2483,10 @@ self =>
      */
 
     /** {{{
-     *  FunDef ::= FunSig `:' Type `=' Expr
-     *           | FunSig [nl] `{' Block `}'
-     *           | this ParamClause ParamClauses (`=' ConstrExpr | [nl] ConstrBlock)
-     *           | `macro' FunSig [`:' Type] `=' Expr
+     *  FunDef ::= FunSig [`:' Type] `=' [`macro'] Expr
+     *          |  FunSig [nl] `{' Block `}'
+     *          |  `this' ParamClause ParamClauses
+     *                 (`=' ConstrExpr | [nl] ConstrBlock)
      *  FunDcl ::= FunSig [`:' Type]
      *  FunSig ::= id [FunTypeParamClause] ParamClauses
      *  }}}
@@ -2448,18 +2506,14 @@ self =>
       }
       else {
         val nameOffset = in.offset
+        val isBackquoted = in.token == BACKQUOTED_IDENT
         val name = ident()
-        if (name == nme.macro_ && isIdent && settings.Xmacros.value)
-          funDefRest(start, in.offset, mods | Flags.MACRO, ident())
-        else
-          funDefRest(start, nameOffset, mods, name)
+        funDefRest(start, nameOffset, mods, name)
       }
     }
 
     def funDefRest(start: Int, nameOffset: Int, mods: Modifiers, name: Name): Tree = {
       val result = atPos(start, if (name.toTermName == nme.ERROR) start else nameOffset) {
-        val isMacro = mods hasFlag Flags.MACRO
-        val isTypeMacro = isMacro && name.isTypeName
         var newmods = mods
         // contextBoundBuf is for context bounded type parameters of the form
         // [T : B] or [T : => B]; it contains the equivalent implicit parameter type,
@@ -2467,12 +2521,10 @@ self =>
         val contextBoundBuf = new ListBuffer[Tree]
         val tparams = typeParamClauseOpt(name, contextBoundBuf)
         val vparamss = paramClauses(name, contextBoundBuf.toList, false)
-        if (!isMacro) newLineOptWhenFollowedBy(LBRACE)
-        var restype = if (isTypeMacro) TypeTree() else fromWithinReturnType(typedOpt())
+        newLineOptWhenFollowedBy(LBRACE)
+        var restype = fromWithinReturnType(typedOpt())
         val rhs =
-          if (isMacro)
-            equalsExpr()
-          else if (isStatSep || in.token == RBRACE) {
+          if (isStatSep || in.token == RBRACE) {
             if (restype.isEmpty) restype = scalaUnitConstr
             newmods |= Flags.DEFERRED
             EmptyTree
@@ -2480,10 +2532,17 @@ self =>
             restype = scalaUnitConstr
             blockExpr()
           } else {
-            if (name == nme.macro_ && isIdent && in.token != EQUALS) {
-              warning("this syntactically invalid code resembles a macro definition. have you forgotten to enable -Xmacros?")
+            if (in.token == EQUALS) {
+              in.nextTokenAllow(nme.MACROkw)
+              if (settings.Xmacros.value && in.token == MACRO || // [Martin] Xmacros can be retired now
+                  in.token == IDENTIFIER && in.name == nme.MACROkw) {
+                in.nextToken()
+                newmods |= Flags.MACRO
+              }
+            } else {
+              accept(EQUALS)
             }
-            equalsExpr()
+            expr()
           }
         DefDef(newmods, name, tparams, vparamss, restype, rhs)
       }
@@ -2533,7 +2592,7 @@ self =>
 
     /** {{{
      *  TypeDef ::= type Id [TypeParamClause] `=' Type
-     *            | `macro' FunSig `=' Expr
+     *            | FunSig `=' Expr
      *  TypeDcl ::= type Id [TypeParamClause] TypeBounds
      *  }}}
      */
@@ -2541,22 +2600,20 @@ self =>
       in.nextToken()
       newLinesOpt()
       atPos(start, in.offset) {
+        val nameOffset = in.offset
+        val isBackquoted = in.token == BACKQUOTED_IDENT
         val name = identForType()
-        if (name == nme.macro_.toTypeName && isIdent && settings.Xmacros.value) {
-          funDefRest(start, in.offset, mods | Flags.MACRO, identForType())
-        } else {
-          // @M! a type alias as well as an abstract type may declare type parameters
-          val tparams = typeParamClauseOpt(name, null)
-          in.token match {
-            case EQUALS =>
-              in.nextToken()
-              TypeDef(mods, name, tparams, typ())
-            case SUPERTYPE | SUBTYPE | SEMI | NEWLINE | NEWLINES | COMMA | RBRACE =>
-              TypeDef(mods | Flags.DEFERRED, name, tparams, typeBounds())
-            case _ =>
-              syntaxErrorOrIncomplete("`=', `>:', or `<:' expected", true)
-              EmptyTree
-          }
+        // @M! a type alias as well as an abstract type may declare type parameters
+        val tparams = typeParamClauseOpt(name, null)
+        in.token match {
+          case EQUALS =>
+            in.nextToken()
+            TypeDef(mods, name, tparams, typ())
+          case SUPERTYPE | SUBTYPE | SEMI | NEWLINE | NEWLINES | COMMA | RBRACE =>
+            TypeDef(mods | Flags.DEFERRED, name, tparams, typeBounds())
+          case _ =>
+            syntaxErrorOrIncomplete("`=', `>:', or `<:' expected", true)
+            EmptyTree
         }
       }
     }
@@ -2603,25 +2660,24 @@ self =>
     def classDef(start: Int, mods: Modifiers): ClassDef = {
       in.nextToken
       val nameOffset = in.offset
+      val isBackquoted = in.token == BACKQUOTED_IDENT
       val name = identForType()
-      def isTrait = mods.hasTraitFlag
-
       atPos(start, if (name == tpnme.ERROR) start else nameOffset) {
         savingClassContextBounds {
           val contextBoundBuf = new ListBuffer[Tree]
           val tparams = typeParamClauseOpt(name, contextBoundBuf)
           classContextBounds = contextBoundBuf.toList
-          val tstart = in.offset :: classContextBounds.map(_.pos.startOrPoint) min;
-          if (!classContextBounds.isEmpty && isTrait) {
+          val tstart = (in.offset :: classContextBounds.map(_.pos.startOrPoint)).min
+          if (!classContextBounds.isEmpty && mods.isTrait) {
             syntaxError("traits cannot have type parameters with context bounds `: ...' nor view bounds `<% ...'", false)
             classContextBounds = List()
           }
           val constrAnnots = constructorAnnotations()
           val (constrMods, vparamss) =
-            if (isTrait) (Modifiers(Flags.TRAIT), List())
+            if (mods.isTrait) (Modifiers(Flags.TRAIT), List())
             else (accessModifierOpt(), paramClauses(name, classContextBounds, mods.isCase))
           var mods1 = mods
-          if (isTrait) {
+          if (mods.isTrait) {
             if (settings.YvirtClasses && in.token == SUBTYPE) mods1 |= Flags.DEFERRED
           } else if (in.token == SUBTYPE) {
             syntaxError("classes are not allowed to be virtual", false)
@@ -2645,6 +2701,7 @@ self =>
     def objectDef(start: Int, mods: Modifiers): ModuleDef = {
       in.nextToken
       val nameOffset = in.offset
+      val isBackquoted = in.token == BACKQUOTED_IDENT
       val name = ident()
       val tstart = in.offset
       atPos(start, if (name == nme.ERROR) start else nameOffset) {
@@ -2689,8 +2746,8 @@ self =>
         val (self, body) = templateBody(true)
         if (in.token == WITH && self.isEmpty) {
           val earlyDefs: List[Tree] = body flatMap {
-            case vdef @ ValDef(mods, name, tpt, rhs) if !mods.isDeferred =>
-              List(treeCopy.ValDef(vdef, mods | Flags.PRESUPER, name, tpt, rhs))
+            case vdef @ ValDef(mods, _, _, _) if !mods.isDeferred =>
+              List(copyValDef(vdef)(mods = mods | Flags.PRESUPER))
             case tdef @ TypeDef(mods, name, tparams, rhs) =>
               List(treeCopy.TypeDef(tdef, mods | Flags.PRESUPER, name, tparams, rhs))
             case stat if !stat.isEmpty =>
@@ -2713,7 +2770,7 @@ self =>
     }
 
     def isInterface(mods: Modifiers, body: List[Tree]): Boolean =
-      mods.hasTraitFlag && (body forall treeInfo.isInterfaceMember)
+      mods.isTrait && (body forall treeInfo.isInterfaceMember)
 
     /** {{{
      *  ClassTemplateOpt ::= `extends' ClassTemplate | [[`extends'] TemplateBody]
@@ -2722,27 +2779,10 @@ self =>
      *  }}}
      */
     def templateOpt(mods: Modifiers, name: Name, constrMods: Modifiers, vparamss: List[List[ValDef]], tstart: Int): Template = {
-      /** Extra parents for case classes. */
-      def caseParents() = (
-        if (mods.isCase) {
-          val arity = if (vparamss.isEmpty || vparamss.head.isEmpty) 0 else vparamss.head.size
-          productConstr :: serializableConstr :: {
-            Nil
-            // if (arity == 0 || settings.YnoProductN.value) Nil
-            // else List(
-            //   AppliedTypeTree(
-            //     productConstrN(arity),
-            //     vparamss.head map (vd => vd.tpt.duplicate setPos vd.tpt.pos.focus)
-            //   )
-            // )
-          }
-        }
-        else Nil
-      )
       val (parents0, argss, self, body) = (
-        if (in.token == EXTENDS || in.token == SUBTYPE && mods.hasTraitFlag) {
+        if (in.token == EXTENDS || in.token == SUBTYPE && mods.isTrait) {
           in.nextToken()
-          template(mods.hasTraitFlag)
+          template(mods.isTrait)
         }
         else {
           newLineOptWhenFollowedBy(LBRACE)
@@ -2750,21 +2790,26 @@ self =>
           (List(), List(List()), self, body)
         }
       )
-
+      def anyrefParents() = {
+        val caseParents = if (mods.isCase) List(productConstr, serializableConstr) else Nil
+        parents0 ::: caseParents match {
+          case Nil  => List(atPos(o2p(in.offset))(scalaAnyRefConstr))
+          case ps   => ps
+        }
+      }
+      def anyvalConstructor() = (
+        // Not a well-formed constructor, has to be finished later - see note
+        // regarding AnyVal constructor in AddInterfaces.
+        DefDef(NoMods, nme.CONSTRUCTOR, Nil, List(Nil), TypeTree(), Block(Nil, Literal(Constant())))
+      )
       val tstart0 = if (body.isEmpty && in.lastOffset < tstart) in.lastOffset else tstart
+
       atPos(tstart0) {
-        if (isAnyValType(name)) {
-          val parent = if (name == tpnme.AnyVal) tpnme.Any else tpnme.AnyVal
-          Template(List(scalaDot(parent)), self, body)
-        }
-        else {
-          val parents = (
-            if (!isInterface(mods, body) && !isScalaArray(name)) parents0 :+ scalaScalaObjectConstr
-            else if (parents0.isEmpty) List(scalaAnyRefConstr)
-            else parents0
-          ) ++ caseParents()
-          Template(parents, self, constrMods, vparamss, argss, body, o2p(tstart))
-        }
+        // Exclude only the 9 primitives plus AnyVal.
+        if (inScalaRootPackage && ScalaValueClassNames.contains(name))
+          Template(parents0, self, anyvalConstructor :: body)
+        else
+          Template(anyrefParents, self, constrMods, vparamss, argss, body, o2p(tstart))
       }
     }
 
@@ -2835,6 +2880,7 @@ self =>
      *  }}}
      */
     def packaging(start: Int): Tree = {
+      val nameOffset = in.offset
       val pkg = pkgQualId()
       val stats = inBracesOrNil(topStatSeq())
       makePackaging(start, pkg, stats)
@@ -2874,6 +2920,13 @@ self =>
         acceptStatSepOpt()
       }
       stats.toList
+    }
+
+    /** Informal - for the repl and other direct parser accessors.
+     */
+    def templateStats(): List[Tree] = templateStatSeq(false)._2 match {
+      case Nil    => List(EmptyTree)
+      case stats  => stats
     }
 
     /** {{{
@@ -3037,8 +3090,10 @@ self =>
               ts ++= topStatSeq()
             }
           } else {
+            val nameOffset = in.offset
             in.flushDoc
             val pkg = pkgQualId()
+
             if (in.token == EOF) {
               ts += makePackaging(start, pkg, List())
             } else if (isStatSep) {

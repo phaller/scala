@@ -368,7 +368,7 @@ abstract class ClassfileParser {
         case arr: Type     => Constant(arr)
       }
     }
-    
+
     private def getSubArray(bytes: Array[Byte]): Array[Byte] = {
       val decodedLength = ByteCodecs.decode(bytes)
       val arr           = new Array[Byte](decodedLength)
@@ -424,19 +424,18 @@ abstract class ClassfileParser {
   def forceMangledName(name: Name, module: Boolean): Symbol = {
     val parts = name.decode.toString.split(Array('.', '$'))
     var sym: Symbol = definitions.RootClass
-    atPhase(currentRun.flattenPhase.prev) {
+
+    // was "at flatten.prev"
+    beforeFlatten {
       for (part0 <- parts; if !(part0 == ""); part = newTermName(part0)) {
-        val sym1 = atPhase(currentRun.icodePhase) {
+        val sym1 = beforeIcode {
           sym.linkedClassOfClass.info
           sym.info.decl(part.encode)
         }//.suchThat(module == _.isModule)
-        if (sym1 == NoSymbol)
-          sym = sym.info.decl(part.encode.toTypeName)
-        else
-          sym = sym1
+
+        sym = sym1 orElse sym.info.decl(part.encode.toTypeName)
       }
     }
-//    println("found: " + sym)
     sym
   }
 
@@ -444,7 +443,11 @@ abstract class ClassfileParser {
   def classNameToSymbol(name: Name): Symbol = {
     def loadClassSymbol(name: Name): Symbol = {
       val file = global.classPath findSourceFile ("" +name) getOrElse {
-        warning("Class " + name + " not found - continuing with a stub.")
+        // SI-5593 Scaladoc's current strategy is to visit all packages in search of user code that can be documented
+        // therefore, it will rummage through the classpath triggering errors whenever it encounters package objects
+        // that are not in their correct place (see bug for details)
+        if (!settings.isScaladoc)
+          warning("Class " + name + " not found - continuing with a stub.")
         return NoSymbol.newClass(name.toTypeName)
       }
       val completer     = new global.loaders.ClassfileLoader(file)
@@ -719,7 +722,7 @@ abstract class ClassfileParser {
                       index += 1
                       val bounds = variance match {
                         case '+' => TypeBounds.upper(objToAny(sig2type(tparams, skiptvs)))
-                        case '-' => 
+                        case '-' =>
                           val tp = sig2type(tparams, skiptvs)
                           // sig2type seems to return AnyClass regardless of the situation:
                           // we don't want Any as a LOWER bound.
@@ -773,7 +776,8 @@ abstract class ClassfileParser {
           // with arrays of primitive types.
           if (elemtp.typeSymbol.isAbstractType && !(elemtp <:< definitions.ObjectClass.tpe))
             elemtp = intersectionType(List(elemtp, definitions.ObjectClass.tpe))
-          appliedType(definitions.ArrayClass.tpe, List(elemtp))
+
+          definitions.arrayType(elemtp)
         case '(' =>
           // we need a method symbol. given in line 486 by calling getType(methodSym, ..)
           assert(sym ne null, sig)
@@ -841,7 +845,7 @@ abstract class ClassfileParser {
         }
         ClassInfoType(parents.toList, instanceDefs, sym)
       }
-    polyType(ownTypeParams, tpe)
+    GenPolyType(ownTypeParams, tpe)
   } // sigToType
 
   class TypeParamsType(override val typeParams: List[Symbol]) extends LazyType {
@@ -1205,11 +1209,11 @@ abstract class ClassfileParser {
               // if loading during initialization of `definitions` typerPhase is not yet set.
               // in that case we simply load the member at the current phase
               if (currentRun.typerPhase != null)
-                atPhase(currentRun.typerPhase)(getMember(sym, innerName.toTypeName))
+                beforeTyper(getMember(sym, innerName.toTypeName))
               else
                 getMember(sym, innerName.toTypeName)
 
-            assert(s ne NoSymbol, 
+            assert(s ne NoSymbol,
               "" + ((externalName, outerName, innerName, sym.fullLocationString)) + " / " +
               " while parsing " + ((in.file, busy)) +
               sym + "." + innerName + " linkedModule: " + sym.companionModule + sym.companionModule.info.members
