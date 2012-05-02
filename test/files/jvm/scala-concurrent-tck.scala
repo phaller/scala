@@ -732,6 +732,92 @@ trait TryEitherExtractor extends TestBase {
   testLeftMatch()
 }
 
+trait CustomExecutionContext extends TestBase {
+  import scala.concurrent.{ ExecutionContext, Awaitable }
+
+  def defaultEC = ExecutionContext.defaultExecutionContext
+
+  class CountingExecutionContext extends ExecutionContext {
+    val _count = new java.util.concurrent.atomic.AtomicInteger(0)
+    def count = _count.get
+
+    def delegate = ExecutionContext.defaultExecutionContext
+
+    override def execute(runnable: Runnable) = {
+      _count.incrementAndGet()
+      delegate.execute(runnable)
+    }
+
+    override def internalBlockingCall[T](awaitable: Awaitable[T], atMost: Duration): T =
+      delegate.internalBlockingCall(awaitable, atMost)
+
+    override def reportFailure(t: Throwable): Unit =
+      delegate.reportFailure(t)
+  }
+
+  def countExecs(block: (ExecutionContext) => Unit): Int = {
+    val context = new CountingExecutionContext()
+    block(context)
+    context.count
+  }
+
+  def testOnSuccessCustomEC(): Unit = {
+    val count = countExecs { implicit ec =>
+      once { done =>
+        val f = future({ })(defaultEC)
+        f onSuccess {
+          case _ =>
+            done()
+        }
+      }
+    }
+
+    // should be onSuccess, but not future body
+    assert(count == 0)
+  }
+
+  def testKeptPromiseCustomEC(): Unit = {
+    val count = countExecs { implicit ec =>
+      once { done =>
+        val f = Promise.successful(10)(defaultEC).future
+        f onSuccess {
+          case _ =>
+            done()
+        }
+      }
+    }
+
+    // should be onSuccess called once in proper EC
+    assert(count == 0)
+  }
+
+  def testCallbackChainCustomEC(): Unit = {
+    val count = countExecs { implicit ec =>
+      once { done =>
+        val f = Promise.successful(10)(defaultEC).future
+        f map {
+          _ + 1
+        } filter {
+          _ == 11
+        } flatMap { x =>
+          Promise.successful(x + 1).future
+        } onSuccess {
+          case x =>
+            assert(x == 12)
+            done()
+        }
+      }
+    }
+
+    // should be once per callback in proper EC
+    assert(count == 0)
+  }
+
+  testOnSuccessCustomEC()
+  testKeptPromiseCustomEC()
+  testCallbackChainCustomEC()
+}
+
 object Test
 extends App
 with FutureCallbacks
@@ -740,6 +826,7 @@ with FutureProjections
 with Promises
 with Exceptions
 with TryEitherExtractor
+with CustomExecutionContext
 {
   System.exit(0)
 }
