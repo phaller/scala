@@ -82,8 +82,24 @@ import language.higherKinds
  *  {{{
  *  f flatMap { (x: Int) => g map { (y: Int) => x + y } }
  *  }}}
+ *
+ * @define callbackInContext
+ * The provided callback may run immediately (if the future has been completed)
+ * and otherwise runs in the provided implicit `ExecutionContext`.
  */
 trait Future[+T] extends Awaitable[T] {
+
+  // we run implementation-detail callbacks on this,
+  // they just run immediately, and actual deferral
+  // only happens when an application executor is
+  // provided along with an application callback.
+  // Having this implicit also ensures we never
+  // use ExecutionContext.defaultExecutionContext
+  // accidentally since this overrides it.
+  // The downside is that the methods with an
+  // application executor have an ambiguous
+  // executor.
+  private implicit def internalExecutor: ExecutionContext = Future.InternalCallbackExecutor
 
   /* Callbacks */
 
@@ -95,11 +111,12 @@ trait Future[+T] extends Awaitable[T] {
    *  this will either be applied immediately or be scheduled asynchronously.
    *
    *  $multipleCallbacks
+   *  $callbackInContext
    */
-  def onSuccess[U](pf: PartialFunction[T, U]): this.type = onComplete {
+  def onSuccess[U](pf: PartialFunction[T, U])(implicit executor: ExecutionContext): this.type = onComplete {
     case Left(t) => // do nothing
     case Right(v) => if (pf isDefinedAt v) pf(v) else { /*do nothing*/ }
-  }
+  } (executor)
 
   /** When this future is completed with a failure (i.e. with a throwable),
    *  apply the provided callback to the throwable.
@@ -112,11 +129,12 @@ trait Future[+T] extends Awaitable[T] {
    *  Will not be called in case that the future is completed with a value.
    *
    *  $multipleCallbacks
+   *  $callbackInContext
    */
-  def onFailure[U](callback: PartialFunction[Throwable, U]): this.type = onComplete {
+  def onFailure[U](callback: PartialFunction[Throwable, U])(implicit executor: ExecutionContext): this.type = onComplete {
     case Left(t) => if (isFutureThrowable(t) && callback.isDefinedAt(t)) callback(t) else { /*do nothing*/ }
     case Right(v) => // do nothing
-  }
+  } (executor)
 
   /** When this future is completed, either through an exception, or a value,
    *  apply the provided function.
@@ -125,15 +143,11 @@ trait Future[+T] extends Awaitable[T] {
    *  this will either be applied immediately or be scheduled asynchronously.
    *
    *  $multipleCallbacks
+   *  $callbackInContext
    */
-  def onComplete[U](func: Either[Throwable, T] => U): this.type
-
+  def onComplete[U](func: Either[Throwable, T] => U)(implicit executor: ExecutionContext): this.type
 
   /* Miscellaneous */
-
-  /** Creates a new promise.
-   */
-  protected def newPromise[S]: Promise[S]
 
   /** Returns whether the future has already been completed with
    *  a value or an exception.
@@ -169,7 +183,7 @@ trait Future[+T] extends Awaitable[T] {
    *  and throws a corresponding exception if the original future fails.
    */
   def failed: Future[Throwable] = {
-    val p = newPromise[Throwable]
+    val p = Promise[Throwable]
 
     onComplete {
       case Left(t) => p success t
@@ -186,10 +200,10 @@ trait Future[+T] extends Awaitable[T] {
    *
    *  Will not be called if the future fails.
    */
-  def foreach[U](f: T => U): Unit = onComplete {
+  def foreach[U](f: T => U)(implicit executor: ExecutionContext): Unit = onComplete {
     case Right(r) => f(r)
     case Left(_)  => // do nothing
-  }
+  } (executor)
 
   /** Creates a new future by applying a function to the successful result of
    *  this future. If this future is completed with an exception then the new
@@ -197,8 +211,8 @@ trait Future[+T] extends Awaitable[T] {
    *
    *  $forComprehensionExample
    */
-  def map[S](f: T => S): Future[S] = {
-    val p = newPromise[S]
+  def map[S](f: T => S)(implicit executor: ExecutionContext): Future[S] = {
+    val p = Promise[S]
 
     onComplete {
       case Left(t) => p failure t
@@ -207,7 +221,7 @@ trait Future[+T] extends Awaitable[T] {
         catch {
           case NonFatal(t) => p complete resolver(t)
         }
-    }
+    } (executor)
 
     p.future
   }
@@ -219,21 +233,21 @@ trait Future[+T] extends Awaitable[T] {
    *
    *  $forComprehensionExample
    */
-  def flatMap[S](f: T => Future[S]): Future[S] = {
-    val p = newPromise[S]
+  def flatMap[S](f: T => Future[S])(implicit executor: ExecutionContext): Future[S] = {
+    val p = Promise[S]
 
     onComplete {
       case Left(t) => p failure t
       case Right(v) =>
         try {
-          f(v) onComplete {
+          f(v).onComplete({
             case Left(t) => p failure t
             case Right(v) => p success v
-          }
+          })(internalExecutor)
         } catch {
           case NonFatal(t) => p complete resolver(t)
         }
-    }
+    } (executor)
 
     p.future
   }
@@ -254,8 +268,8 @@ trait Future[+T] extends Awaitable[T] {
    *  await(h, 0) // throw a NoSuchElementException
    *  }}}
    */
-  def filter(pred: T => Boolean): Future[T] = {
-    val p = newPromise[T]
+  def filter(pred: T => Boolean)(implicit executor: ExecutionContext): Future[T] = {
+    val p = Promise[T]
 
     onComplete {
       case Left(t) => p failure t
@@ -266,14 +280,14 @@ trait Future[+T] extends Awaitable[T] {
         } catch {
           case NonFatal(t) => p complete resolver(t)
         }
-    }
+    } (executor)
 
     p.future
   }
 
   /** Used by for-comprehensions.
    */
-  final def withFilter(p: T => Boolean): Future[T] = filter(p)
+  final def withFilter(p: T => Boolean)(implicit executor: ExecutionContext): Future[T] = filter(p)(executor)
   // final def withFilter(p: T => Boolean) = new FutureWithFilter[T](this, p)
 
   // final class FutureWithFilter[+S](self: Future[S], p: S => Boolean) {
@@ -303,8 +317,8 @@ trait Future[+T] extends Awaitable[T] {
    *  await(h, 0) // throw a NoSuchElementException
    *  }}}
    */
-  def collect[S](pf: PartialFunction[T, S]): Future[S] = {
-    val p = newPromise[S]
+  def collect[S](pf: PartialFunction[T, S])(implicit executor: ExecutionContext): Future[S] = {
+    val p = Promise[S]
 
     onComplete {
       case Left(t) => p failure t
@@ -315,7 +329,7 @@ trait Future[+T] extends Awaitable[T] {
         } catch {
           case NonFatal(t) => p complete resolver(t)
         }
-    }
+    } (executor)
 
     p.future
   }
@@ -332,15 +346,15 @@ trait Future[+T] extends Awaitable[T] {
    *  future (6 / 2) recover { case e: ArithmeticException ⇒ 0 } // result: 3
    *  }}}
    */
-  def recover[U >: T](pf: PartialFunction[Throwable, U]): Future[U] = {
-    val p = newPromise[U]
+  def recover[U >: T](pf: PartialFunction[Throwable, U])(implicit executor: ExecutionContext): Future[U] = {
+    val p = Promise[U]
 
     onComplete {
       case Left(t) if pf isDefinedAt t =>
         try { p success pf(t) }
         catch { case NonFatal(t) => p complete resolver(t) }
       case otherwise => p complete otherwise
-    }
+    } (executor)
 
     p.future
   }
@@ -358,8 +372,8 @@ trait Future[+T] extends Awaitable[T] {
    *  future (6 / 0) recoverWith { case e: ArithmeticException => f } // result: Int.MaxValue
    *  }}}
    */
-  def recoverWith[U >: T](pf: PartialFunction[Throwable, Future[U]]): Future[U] = {
-    val p = newPromise[U]
+  def recoverWith[U >: T](pf: PartialFunction[Throwable, Future[U]])(implicit executor: ExecutionContext): Future[U] = {
+    val p = Promise[U]
 
     onComplete {
       case Left(t) if pf isDefinedAt t =>
@@ -369,7 +383,7 @@ trait Future[+T] extends Awaitable[T] {
           case NonFatal(t) => p complete resolver(t)
         }
       case otherwise => p complete otherwise
-    }
+    } (executor)
 
     p.future
   }
@@ -383,16 +397,16 @@ trait Future[+T] extends Awaitable[T] {
    *  with the throwable stored in `that`.
    */
   def zip[U](that: Future[U]): Future[(T, U)] = {
-    val p = newPromise[(T, U)]
+    val p = Promise[(T, U)]
 
-    this onComplete {
+    this.onComplete {
       case Left(t)  => p failure t
-      case Right(r) => that onSuccess {
+      case Right(r) => that.onSuccess {
         case r2 => p success ((r, r2))
       }
     }
 
-    that onFailure {
+    that.onFailure {
       case f => p failure f
     }
 
@@ -414,7 +428,7 @@ trait Future[+T] extends Awaitable[T] {
    *  }}}
    */
   def fallbackTo[U >: T](that: Future[U]): Future[U] = {
-    val p = newPromise[U]
+    val p = Promise[U]
     onComplete {
       case r @ Right(_) ⇒ p complete r
       case _            ⇒ p completeWith that
@@ -443,7 +457,7 @@ trait Future[+T] extends Awaitable[T] {
       if (c.isPrimitive) toBoxed(c) else c
     }
 
-    val p = newPromise[S]
+    val p = Promise[S]
 
     onComplete {
       case l: Left[Throwable, _] => p complete l.asInstanceOf[Either[Throwable, S]]
@@ -481,14 +495,14 @@ trait Future[+T] extends Awaitable[T] {
    *  }
    *  }}}
    */
-  def andThen[U](pf: PartialFunction[Either[Throwable, T], U]): Future[T] = {
-    val p = newPromise[T]
+  def andThen[U](pf: PartialFunction[Either[Throwable, T], U])(implicit executor: ExecutionContext): Future[T] = {
+    val p = Promise[T]
 
     onComplete {
       case r =>
         try if (pf isDefinedAt r) pf(r)
         finally p complete r
-    }
+    } (executor)
 
     p.future
   }
@@ -507,7 +521,7 @@ trait Future[+T] extends Awaitable[T] {
    *  }}}
    */
   def either[U >: T](that: Future[U]): Future[U] = {
-    val p = newPromise[U]
+    val p = Promise[U]
 
     val completePromise: PartialFunction[Either[Throwable, U], _] = {
       case Left(t) => p tryFailure t
@@ -536,10 +550,10 @@ object Future {
   *
   *  @tparam T       the type of the result
   *  @param body     the asychronous computation
-  *  @param execctx  the execution context on which the future is run
+  *  @param executor the execution context which runs the body
   *  @return         the `Future` holding the result of the computation
   */
-  def apply[T](body: =>T)(implicit execctx: ExecutionContext): Future[T] = impl.Future(body)
+  def apply[T](body: =>T)(implicit executor: ExecutionContext): Future[T] = impl.Future(body)
 
   import scala.collection.mutable.Builder
   import scala.collection.generic.CanBuildFrom
@@ -628,6 +642,23 @@ object Future {
       for (r <- fr; b <- fb) yield (r += b)
     }.map(_.result)
 
+  // This is used to run callbacks which we know are
+  // our own and not from the application; we can
+  // just run them immediately with no dispatch
+  // overhead, and we can know that they won't block,
+  // and we can know that exceptions from them are
+  // bugs in our stuff or maybe some nasty VM problem.
+  // Obviously don't use this to run a
+  // callback which in turn runs an application
+  // callback; only purely internal callbacks.
+  private[concurrent] object InternalCallbackExecutor extends ExecutionContext {
+    def execute(runnable: Runnable): Unit =
+      runnable.run()
+    def internalBlockingCall[T](awaitable: Awaitable[T], atMost: Duration): T =
+      throw new IllegalStateException("bug in scala.concurrent, called blocking() from internal callback")
+    def reportFailure(t: Throwable): Unit =
+      throw new IllegalStateException("problem in scala.concurrent internal callback", t)
+  }
 }
 
 
