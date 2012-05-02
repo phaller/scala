@@ -29,10 +29,8 @@ private[concurrent] trait Promise[T] extends scala.concurrent.Promise[T] with Fu
 object Promise {
   /** Default promise implementation.
    */
-  class DefaultPromise[T](implicit val executor: ExecutionContext) extends AbstractPromise with Promise[T] { self =>
+  class DefaultPromise[T] extends AbstractPromise with Promise[T] { self =>
     updater.set(this, Nil) // Start at "No callbacks" //FIXME switch to Unsafe instead of ARFU
-
-    def newPromise[S]: scala.concurrent.Promise[S] = new Promise.DefaultPromise()
 
     protected final def tryAwait(atMost: Duration): Boolean = {
       @tailrec
@@ -106,22 +104,30 @@ object Promise {
       }) match {
         case null             => false
         case cs if cs.isEmpty => true
-        case cs               => Future.dispatchFuture(executor, () => cs.foreach(f => notifyCompleted(f, resolved))); true
+        // this assumes that bindDispatch() was called to create f,
+        // so it will go via dispatchFuture and notifyCompleted
+        case cs               => cs.foreach(f => f(resolved)); true
       }
     }
 
-    def onComplete[U](func: Either[Throwable, T] => U): this.type = {
+    private def bindDispatch(func: Either[Throwable, T] => Any)(implicit executor: ExecutionContext): Either[Throwable, T] => Unit = {
+      either: Either[Throwable, T] =>
+        Future.dispatchFuture(executor, () => notifyCompleted(func, either))
+    }
+
+    def onComplete[U](func: Either[Throwable, T] => U)(implicit executor: ExecutionContext): this.type = {
+      val bound = bindDispatch(func)
       @tailrec //Tries to add the callback, if already completed, it dispatches the callback to be executed
       def dispatchOrAddCallback(): Unit =
         getState match {
-          case r: Either[_, _]    => Future.dispatchFuture(executor, () => notifyCompleted(func, r.asInstanceOf[Either[Throwable, T]]))
-          case listeners: List[_] => if (updateState(listeners, func :: listeners)) () else dispatchOrAddCallback()
+          case r: Either[_, _]    => bound(r.asInstanceOf[Either[Throwable, T]])
+          case listeners: List[_] => if (updateState(listeners, bound :: listeners)) () else dispatchOrAddCallback()
         }
       dispatchOrAddCallback()
       this
     }
 
-    private final def notifyCompleted(func: Either[Throwable, T] => Any, result: Either[Throwable, T]) {
+    private final def notifyCompleted(func: Either[Throwable, T] => Any, result: Either[Throwable, T])(implicit executor: ExecutionContext) {
       try {
         func(result)
       } catch {
@@ -134,17 +140,15 @@ object Promise {
    *
    *  Useful in Future-composition when a value to contribute is already available.
    */
-  final class KeptPromise[T](suppliedValue: Either[Throwable, T])(implicit val executor: ExecutionContext) extends Promise[T] {
+  final class KeptPromise[T](suppliedValue: Either[Throwable, T]) extends Promise[T] {
 
     val value = Some(resolveEither(suppliedValue))
 
     override def isCompleted(): Boolean = true
 
-    def newPromise[S]: scala.concurrent.Promise[S] = new Promise.DefaultPromise()
-
     def tryComplete(value: Either[Throwable, T]): Boolean = false
 
-    def onComplete[U](func: Either[Throwable, T] => U): this.type = {
+    def onComplete[U](func: Either[Throwable, T] => U)(implicit executor: ExecutionContext): this.type = {
       val completedAs = value.get
       Future.dispatchFuture(executor, () => func(completedAs))
       this
