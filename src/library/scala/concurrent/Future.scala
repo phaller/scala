@@ -98,6 +98,8 @@ class FunctionWithExecutor[-T, +U](fun: T => U, val executor: ExecutionContext) 
  */
 trait Future[+T] extends Awaitable[T] {
 
+  import Future._
+
   // we run implementation-detail callbacks on this,
   // they just run immediately, and actual deferral
   // only happens when an application executor is
@@ -122,10 +124,10 @@ trait Future[+T] extends Awaitable[T] {
    *  $multipleCallbacks
    *  $callbackInContext
    */
-  def onSuccess[U](pf: PartialFunctionWithExecutor[T, U]): this.type = onComplete {
+  def onSuccess[U](pf: PartialFunction[T, U]): this.type = onComplete {
     case Left(t) => // do nothing
     case Right(v) => if (pf isDefinedAt v) pf(v) else { /*do nothing*/ }
-  } (pf.executor)
+  } (internalExecutor)
 
   /** When this future is completed with a failure (i.e. with a throwable),
    *  apply the provided callback to the throwable.
@@ -220,7 +222,7 @@ trait Future[+T] extends Awaitable[T] {
    *
    *  $forComprehensionExample
    */
-  def map[S](f: T => S)(implicit executor: ExecutionContext): Future[S] = {
+  def map[S](f: FunctionWithExecutor[T, S]): Future[S] = {
     val p = Promise[S]
 
     onComplete {
@@ -230,7 +232,7 @@ trait Future[+T] extends Awaitable[T] {
         catch {
           case NonFatal(t) => p complete resolver(t)
         }
-    } (executor)
+    } (f.executor)
 
     p.future
   }
@@ -411,9 +413,9 @@ trait Future[+T] extends Awaitable[T] {
     this onComplete {
       case Left(t)  => p failure t
       case Right(r) =>
-        that.onSuccess(Future.toFunWithExecutor[U, Unit]({
+        that.onSuccess(/*Future.toFunWithExecutor[U, Unit](*/{
           case r2 => p success ((r, r2)); ()
-        })(internalExecutor))
+        }/*)(internalExecutor)*/)
         that onFailure {
           case f => p failure f
         }
@@ -555,8 +557,11 @@ object Future {
     classOf[Unit]    -> classOf[scala.runtime.BoxedUnit]
   )
   
-  implicit def toFunWithExecutor[T, U](pf: PartialFunction[T, U])(implicit executor: ExecutionContext): PartialFunctionWithExecutor[T, U] =
+  implicit def toPFunWithExecutor[T, U](pf: PartialFunction[T, U])(implicit executor: ExecutionContext): PartialFunctionWithExecutor[T, U] =
     new PartialFunctionWithExecutor(pf, executor)
+
+  implicit def toFunWithExecutor[T, U](f: T => U)(implicit executor: ExecutionContext): FunctionWithExecutor[T, U] =
+    new FunctionWithExecutor(f, executor)
 
   /** Starts an asynchronous computation and returns a `Future` object with the result of that computation.
   *
