@@ -94,16 +94,15 @@ import language.higherKinds
  */
 trait Future[+T] extends Awaitable[T] {
 
-  // we run implementation-detail callbacks on this,
-  // they just run immediately, and actual deferral
-  // only happens when an application executor is
-  // provided along with an application callback.
-  // Having this implicit also ensures we never
-  // use ExecutionContext.defaultExecutionContext
-  // accidentally since this overrides it.
-  // The downside is that the methods with an
-  // application executor have an ambiguous
-  // executor.
+  // The executor within the lexical scope
+  // of the Future trait. Note that this will
+  // (modulo bugs) _never_ execute a callback
+  // other than those below in this same file.
+  // As a nice side benefit, having this implicit
+  // here forces an ambiguity in those methods
+  // that also have an executor parameter, which
+  // keeps us from accidentally forgetting to use
+  // the executor parameter.
   private implicit def internalExecutor: ExecutionContext = Future.InternalCallbackExecutor
 
   /* Callbacks */
@@ -647,15 +646,25 @@ object Future {
       for (r <- fr; b <- fb) yield (r += b)
     }.map(_.result)
 
-  // This is used to run callbacks which we know are
-  // our own and not from the application; we can
-  // just run them immediately with no dispatch
-  // overhead, and we can know that they won't block,
-  // and we can know that exceptions from them are
-  // bugs in our stuff or maybe some nasty VM problem.
-  // Obviously don't use this to run a
-  // callback which in turn runs an application
-  // callback; only purely internal callbacks.
+  // This is used to run callbacks which are internal
+  // to scala.concurrent; our own callbacks are only
+  // ever used to eventually run another callback,
+  // and that other callback will have its own
+  // executor because all callbacks come with
+  // an executor. Our own callbacks never block
+  // and have no "expected" exceptions.
+  // As a result, this executor can do nothing;
+  // some other executor will always come after
+  // it (and sometimes one will be before it),
+  // and those will be performing the "real"
+  // dispatch to code outside scala.concurrent.
+  // Because this exists, ExecutionContext.defaultExecutionContext
+  // isn't instantiated by Future internals, so
+  // if some code for some reason wants to avoid
+  // ever starting up the default context, it can do so
+  // by just not ever using it itself. scala.concurrent
+  // doesn't need to create defaultExecutionContext as
+  // a side effect.
   private[concurrent] object InternalCallbackExecutor extends ExecutionContext {
     def execute(runnable: Runnable): Unit =
       runnable.run()

@@ -25,7 +25,9 @@ package scala.concurrent
  */
 trait Promise[T] {
 
-  // use for internal callbacks, never for app callbacks
+  // used for internal callbacks defined in
+  // the lexical scope of this trait;
+  // _never_ for application callbacks.
   private implicit def internalExecutor: ExecutionContext = Future.InternalCallbackExecutor
 
   /** Future containing the value of this promise.
