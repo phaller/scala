@@ -84,8 +84,13 @@ import language.higherKinds
  *  }}}
  *
  * @define callbackInContext
- * The provided callback may run immediately (if the future has been completed)
- * and otherwise runs in the provided implicit `ExecutionContext`.
+ * The provided callback always runs in the provided implicit
+ *`ExecutionContext`, though there is no guarantee that the
+ * `execute()` method on the `ExecutionContext` will be called once
+ * per callback or that `execute()` will be called in the current
+ * thread. That is, the implementation may run multiple callbacks
+ * in a batch within a single `execute()` and it may run
+ * `execute()` either immediately or asynchronously.
  */
 trait Future[+T] extends Awaitable[T] {
 
