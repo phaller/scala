@@ -608,11 +608,12 @@ trait Namers extends MethodSynthesis {
 
     def enterClassDef(tree: ClassDef) {
       val ClassDef(mods, name, tparams, impl) = tree
+      val primaryConstructorArity = treeInfo.firstConstructorArgs(impl.body).size
       tree.symbol = enterClassSymbol(tree)
       tree.symbol setInfo completerOf(tree)
 
       if (mods.isCase) {
-        if (treeInfo.firstConstructorArgs(impl.body).size > MaxFunctionArity)
+        if (primaryConstructorArity > MaxFunctionArity)
           MaxParametersCaseClassError(tree)
 
         val m = ensureCompanionObject(tree, caseModuleDef)
@@ -627,7 +628,7 @@ trait Namers extends MethodSynthesis {
         classAndNamerOfModule(m) = (tree, null)
       }
       val owner = tree.symbol.owner
-      if (owner.isPackageObjectClass) {
+      if (settings.lint.value && owner.isPackageObjectClass) {
         context.unit.warning(tree.pos,
           "it is not recommended to define classes/objects inside of package objects.\n" +
           "If possible, define " + tree.symbol + " in " + owner.skipPackageObject + " instead."
@@ -636,8 +637,11 @@ trait Namers extends MethodSynthesis {
 
       // Suggested location only.
       if (mods.isImplicit) {
-        log("enter implicit wrapper "+tree+", owner = "+owner)
-        enterImplicitWrapper(tree)
+        if (primaryConstructorArity == 1) {
+          log("enter implicit wrapper "+tree+", owner = "+owner)
+          enterImplicitWrapper(tree)
+        }
+        else context.unit.error(tree.pos, "implicit classes must accept exactly one primary constructor parameter")
       }
     }
 
@@ -761,7 +765,10 @@ trait Namers extends MethodSynthesis {
       val tpe1 = dropRepeatedParamType(tpe.deconst)
       val tpe2 = tpe1.widen
 
-      if (sym.isVariable || sym.isMethod && !sym.hasAccessorFlag)
+      // This infers Foo.type instead of "object Foo"
+      // See Infer#adjustTypeArgs for the polymorphic case.
+      if (tpe.typeSymbolDirect.isModuleClass) tpe1
+      else if (sym.isVariable || sym.isMethod && !sym.hasAccessorFlag)
         if (tpe2 <:< pt) tpe2 else tpe1
       else if (isHidden(tpe)) tpe2
       // In an attempt to make pattern matches involving method local vals
@@ -780,8 +787,8 @@ trait Namers extends MethodSynthesis {
       val typedBody =
         if (tree.symbol.isTermMacro) defnTyper.computeMacroDefType(tree, pt)
         else defnTyper.computeType(tree.rhs, pt)
-      val sym       = if (owner.isMethod) owner else tree.symbol
-      val typedDefn = widenIfNecessary(sym, typedBody, pt)
+
+      val typedDefn = widenIfNecessary(tree.symbol, typedBody, pt)
       assignTypeToTree(tree, typedDefn)
     }
 
@@ -1347,6 +1354,11 @@ trait Namers extends MethodSynthesis {
     /** Convert Java generic array type T[] to (T with Object)[]
      *  (this is necessary because such arrays have a representation which is incompatible
      *   with arrays of primitive types.)
+     *
+     *  @note the comparison to Object only works for abstract types bounded by classes that are strict subclasses of Object
+     *  if the bound is exactly Object, it will have been converted to Any, and the comparison will fail
+     *
+     *  see also sigToType
      */
     private object RestrictJavaArraysMap extends TypeMap {
       def apply(tp: Type): Type = tp match {

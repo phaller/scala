@@ -155,6 +155,8 @@ trait NamesDefaults { self: Analyzer =>
         val sym = blockTyper.context.owner.newValue(unit.freshTermName("qual$"), qual.pos) setInfo qual.tpe
         blockTyper.context.scope enter sym
         val vd = atPos(sym.pos)(ValDef(sym, qual) setType NoType)
+        // it stays in Vegas: SI-5720, SI-5727
+        qual changeOwner (blockTyper.context.owner -> sym)
 
         var baseFunTransformed = atPos(baseFun.pos.makeTransparent) {
           // don't use treeCopy: it would assign opaque position.
@@ -336,7 +338,7 @@ trait NamesDefaults { self: Analyzer =>
               // cannot call blockTyper.typedBlock here, because the method expr might be partially applied only
               val res = blockTyper.doTypedApply(tree, expr, refArgs, mode, pt)
               res.setPos(res.pos.makeTransparent)
-              val block = Block(stats ::: valDefs, res).setType(res.tpe).setPos(tree.pos)
+              val block = Block(stats ::: valDefs, res).setType(res.tpe).setPos(tree.pos.makeTransparent)
               context.namedApplyBlockInfo =
                 Some((block, NamedApplyInfo(qual, targs, vargss :+ refArgs, blockTyper)))
               block
