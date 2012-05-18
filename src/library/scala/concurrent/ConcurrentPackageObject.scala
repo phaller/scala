@@ -85,6 +85,4 @@ abstract class ConcurrentPackageObject {
       case ec => ec.internalBlockingCall(awaitable, atMost)
     }
   }
-
-  @inline implicit final def int2durationops(x: Int): DurationOps = new DurationOps(x)
 }
