@@ -10,7 +10,7 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
   import global._
   import definitions._
 
-  //override val verbose = true
+  override val verbose = false
   @inline override final def vprintln(x: =>Any): Unit = if (verbose) println(x)
 
   /**
@@ -170,6 +170,10 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
             vprintln("yes we can!! (byval)")
             return true
           }
+        } else if (annots1.isEmpty && ((mode & global.analyzer.BYVALmode) != 0)) {
+          // enable adaptation for return expr
+          vprintln("yes we can!! (byval and return)")
+          return true
         }
       }
       false
@@ -207,6 +211,13 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
         // add a marker annotation that will make tree.tpe behave as pt, subtyping wise
         // tree will look like having no annotation
         val res = tree modifyType addMinusMarker
+        vprintln("adapted annotations (by val) of " + tree + " to " + res.tpe)
+        res
+      } else if (exprMode && byValMode && !hasPlusMarker(tree.tpe) && annotsTree.isEmpty && annotsExpected.nonEmpty) {
+        // for general return support:
+        // add a marker annotation that will make tree.tpe behave as pt, subtyping wise
+        // tree will look like having no annotation
+        val res = tree modifyType (_ withAnnotations /*newPlusMarker() ::*/ annotsExpected)
         vprintln("adapted annotations (by val) of " + tree + " to " + res.tpe)
         res
       } else tree
@@ -381,6 +392,30 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
 
           vprintln("[checker] checking select apply type-apply " + tree + "/" + tpe)
 
+          // HERE we need to handle returns
+          // check if we are selecting e.g. ControlContext.map
+          val MethMap = definitions.getMember(Context, newTermName("map"))
+          if (fun.symbol == MethMap) {
+            vprintln("[checker] selecting ControlContext.map")
+            // check that args(0) is a function literal
+            // if so traverse its body and wrap everything in a NonLocalTryCatch
+            args(0) match {
+              case Function(vparams, body) =>
+                // does body contain a return marked with @plus?
+                vprintln("[checker] traverse " + body)
+                
+                /*
+          val flatdd = copyDefDef(dd)(
+            vparamss = List(vparamss0.flatten),
+            rhs = nonLocalReturnKeys get dd.symbol match {
+              case Some(k) => atPos(rhs0.pos)(nonLocalReturnTry(rhs0, k, dd.symbol))
+              case None    => rhs0
+            }
+          )
+                 */
+            }
+          }
+
           transChildrenInOrder(tree, tpe, qual::(transArgList(fun, args).flatten), Nil)
 
         case TypeApply(fun @ Select(qual, name), args) if fun.isTyped =>
@@ -443,8 +478,9 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
           if (annots.nonEmpty) {
             val ann = single(annots)
             val (atp0, atp1) = annTypes(ann)
-            if (!(atp0 =:= atp1))
-              throw new TypeError("only simple cps types allowed in try/catch blocks (found: " + tpe1 + ")")
+            // TODO: disabled for wip on general return
+            //if (!(atp0 =:= atp1))
+            //  throw new TypeError("only simple cps types allowed in try/catch blocks (found: " + tpe1 + ", atp0: " + atp0 + ", atp1: " + atp1 + ")")
             if (!finalizer.isEmpty) // no finalizers allowed. see explanation in SelectiveCPSTransform
               reporter.error(tree.pos, "try/catch blocks that use continuations cannot have finalizers")
           }
@@ -463,6 +499,19 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
             tree.symbol modifyInfo removeAllCPSAnnotations
           }
           tpe
+
+        case Return(expr) =>
+          vprintln("[checker] checking return " + tree + "/" + tpe)
+          /*
+           * val cpsAnnot = cpsParamAnnotation(expr.tpe)
+           * if (!(expr has @plus))
+           *   transChildrenInOrder
+           * else {
+           * - add @plus to return
+           * - change type to Int @cps ... if expr.tpe == Int
+           * }
+           */
+          transChildrenInOrder(tree, tpe, List(expr), Nil)
 
         case _ =>
           tpe
