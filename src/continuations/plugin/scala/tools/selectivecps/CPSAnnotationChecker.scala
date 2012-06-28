@@ -170,6 +170,12 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
             vprintln("yes we can!! (byval)")
             return true
           }
+        } else if (!hasPlusMarker(tree.tpe) && annots1.isEmpty && !annots2.isEmpty && (mode & global.analyzer.RETmode) != 0) {
+          // check enclosing method's result type without its annotations
+          if (tree.tpe <:< pt.withoutAnnotations) {
+            vprintln("yes we can!! (return)")
+            return true
+          }
         }
       }
       false
@@ -183,6 +189,7 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
       val patMode   = (mode & global.analyzer.PATTERNmode) != 0
       val exprMode  = (mode & global.analyzer.EXPRmode) != 0
       val byValMode = (mode & global.analyzer.BYVALmode) != 0
+      val retMode   = (mode & global.analyzer.RETmode) != 0
 
       val annotsTree     = cpsParamAnnotation(tree.tpe)
       val annotsExpected = cpsParamAnnotation(pt)
@@ -209,7 +216,24 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
         val res = tree modifyType addMinusMarker
         vprintln("adapted annotations (by val) of " + tree + " to " + res.tpe)
         res
+      } else if (retMode && !hasPlusMarker(tree.tpe) && annotsTree.isEmpty && annotsExpected.nonEmpty) {
+        // add a marker annotation that will make tree.tpe behave as pt, subtyping wise
+        // tree will look like having no annotation
+        val res = tree modifyType (_ withAnnotations List(newPlusMarker()))
+        vprintln("adapted annotations (return) of " + tree + " to " + res.tpe)
+        res
       } else tree
+    }
+
+    override def canAdaptReturnAnnotations(tree: Tree, mode: Int, pt: Type, methodBody: Tree): Boolean = {
+      //TODO: 1) check whether pt is a CPS type
+      // 2) if 1) then methodBody should not contain shift/reset
+      val MethShift = definitions.getMember(ModCPS, newTermName("shift"))
+      val MethReset = definitions.getMember(ModCPS, newTermName("reset"))
+      val hasShiftOrReset = methodBody.exists { t =>
+        t.symbol != NoSymbol && (t.symbol == MethShift || t.symbol == MethReset)
+      }
+      !hasShiftOrReset
     }
 
     def updateAttributesFromChildren(tpe: Type, childAnnots: List[AnnotationInfo], byName: List[Tree]): Type = {

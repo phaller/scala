@@ -41,6 +41,8 @@ trait AnnotationCheckers {
      *  into account the given mode (see method adapt in trait Typers).*/
     def canAdaptAnnotations(tree: Tree, mode: Int, pt: Type): Boolean = false
 
+    def canAdaptReturnAnnotations(tree: Tree, mode: Int, pt: Type, methodBody: Tree): Boolean = true
+
     /** Adapt a tree that has an annotated type to the given type tp,
      *  taking into account the given mode (see method adapt in trait Typers).
      *  An implementation cannot rely on canAdaptAnnotations being called
@@ -108,6 +110,10 @@ trait AnnotationCheckers {
    *  to a given type. Called by Typers.adapt. */
   def canAdaptAnnotations(tree: Tree, mode: Int, pt: Type): Boolean = {
     annotationCheckers.exists(_.canAdaptAnnotations(tree, mode, pt))
+  }
+
+  def canAdaptReturnAnnotations(tree: Tree, mode: Int, pt: Type, methodBody: Tree): Boolean = {
+    annotationCheckers.forall(_.canAdaptReturnAnnotations(tree, mode, pt, methodBody))
   }
 
   /** Let registered annotation checkers adapt a tree
