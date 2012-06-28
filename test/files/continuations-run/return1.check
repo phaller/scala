@@ -1,0 +1,3 @@
+return1.scala:17: error: return expression not allowed due to annotation checking
+      return 10
+      ^
