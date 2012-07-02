@@ -6,10 +6,12 @@ class Return {
   
   def p(i: Int): Int @cps[Any] = {
     val v = shifting + 3
+    
     return v
   }
   
   def caller() = reset {
+    println("calling println")
     println(p(3))
   }
 }

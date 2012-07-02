@@ -5,6 +5,7 @@ package scala.tools.selectivecps
 import scala.tools.nsc._
 import scala.tools.nsc.transform._
 import scala.tools.nsc.symtab._
+import scala.tools.nsc.symtab.Flags._
 import scala.tools.nsc.plugins._
 
 import scala.tools.nsc.ast._
@@ -13,11 +14,12 @@ import scala.tools.nsc.ast._
  * In methods marked @cps, explicitly name results of calls to other @cps methods
  */
 abstract class SelectiveANFTransform extends PluginComponent with Transform with
-  TypingTransformers with CPSUtils {
+  TypingTransformers with CPSUtils with ast.TreeDSL {
   // inherits abstract value `global` and class `Phase` from Transform
 
   import global._                  // the global environment
   import definitions._             // standard classes and methods
+  import CODE._
   import typer.atOwner             // methods to type trees
 
   /** the following two members override abstract members in Transform */
@@ -32,6 +34,105 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
     implicit val _unit = unit // allow code in CPSUtils.scala to report errors
     var cpsAllowed: Boolean = false // detect cps code in places we do not handle (yet)
 
+    /** The type of a non-local return expression with given argument type */
+    private def nonLocalReturnExceptionType(argtype: Type) =
+      appliedType(NonLocalReturnControlClass, argtype)
+
+    /** A hashmap from method symbols to non-local return keys */
+    private val nonLocalReturnKeys = perRunCaches.newMap[Symbol, Symbol]()
+
+    /** Return non-local return key for given method */
+    private def nonLocalReturnKey(meth: Symbol) =
+      nonLocalReturnKeys.getOrElseUpdate(meth,
+        meth.newValue(unit.freshTermName("nonLocalReturnKey"), meth.pos, SYNTHETIC) setInfo ObjectClass.tpe
+      )
+
+    /** Generate a non-local return throw with given return expression from given method.
+     *  I.e. for the method's non-local return key, generate:
+     *
+     *    throw new NonLocalReturnControl(key, expr)
+     *  todo: maybe clone a pre-existing exception instead?
+     *  (but what to do about exceptions that miss their targets?)
+     */
+    private def nonLocalReturnThrow(expr: Tree, ret: Tree, meth: Symbol) = {
+      val throwTree = localTyper typed { Throw(
+        nonLocalReturnExceptionType(expr.tpe.widen/*.withoutAnnotations*/),
+        Ident(nonLocalReturnKey(meth)),
+        expr
+      ) }
+      //throwTree setInfo ret.tpe
+      println("[ANF] type of returnThrow: "+throwTree.tpe)
+      throwTree
+    }
+
+    /** Transform (body, key) to:
+     *
+     *  {
+     *    val key = new Object()
+     *    try {
+     *      body
+     *    } catch {
+     *      case ex: NonLocalReturnControl[_] =>
+     *        if (ex.key().eq(key)) ex.value()
+     *        else throw ex
+     *    }
+     *  }
+     */
+    private def nonLocalReturnTry(body: Tree, key: Symbol, meth: Symbol) = {
+      // TODO: adjust result type: should not be ControlContext
+      println("[ANF] inserting nonLocalReturnTry with result type: "+meth.tpe.finalResultType)
+      
+      val (typedTryCatch, typedThrow): (Tree, Tree) = {
+        var throwTree: Tree = null
+        val tryTreeTyped = localTyper typed {
+          val extpe      = nonLocalReturnExceptionType(meth.tpe.finalResultType)
+          val ex         = meth.newValue(nme.ex, body.pos) setInfo extpe
+          throwTree  = Throw(Ident(ex))
+          val pat        = gen.mkBindForCase(ex, NonLocalReturnControlClass, List(meth.tpe.finalResultType))
+          val rhs = (
+            IF   ((ex DOT nme.key)/*()*/ OBJ_EQ Ident(key))
+            THEN ((ex DOT nme.value)/*()*/)
+            ELSE (throwTree)
+          )
+          val keyDef   = ValDef(key, New(ObjectClass.tpe))
+          val tryCatch = Try(body, pat -> rhs)
+
+          Block(List(keyDef), tryCatch)
+        }
+        (tryTreeTyped, throwTree)
+      }
+      
+      cpsParamTypes(meth.tpe.finalResultType) match {
+        case None =>
+          typedTryCatch
+        case Some((cpsTpe1, cpsTpe2)) =>
+          val cpsMarker = newCpsParamsMarker(cpsTpe1, cpsTpe2)
+          typedThrow modifyType (_ withAnnotations List(cpsMarker))
+          typedTryCatch
+      }
+    }
+
+    class ReturnTransformer extends TypingTransformer(unit) {
+      var containsReturn = false
+      var containsShift = false
+
+      override def transform(tree: Tree): Tree = tree match {
+        case ret @ Return(expr) =>
+          containsReturn = true
+          println("[ANF] inserting returnThrow")
+          atPos(ret.pos)(nonLocalReturnThrow(expr, ret, ret.symbol))
+
+        case Apply(TypeApply(fun @ Select(qual, name), targs), args) if fun.isTyped =>
+          //val MethShift = definitions.getMember(Context, newTermName("map"))
+          if (fun.symbol == MethShift)
+            containsShift = true
+          super.transform(tree)
+
+        case _ =>
+          super.transform(tree)
+      }
+    }
+    
     override def transform(tree: Tree): Tree = {
       if (!cpsEnabled) return tree
 
@@ -46,10 +147,25 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
         // this would cause infinite recursion. But we could remove the
         // ValDef case here.
 
-        case dd @ DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
+        case dd @ DefDef(mods, name, tparams, vparamss, tpt, rhs0) =>
           debuglog("transforming " + dd.symbol)
 
           atOwner(dd.symbol) {
+            val rhs = {
+              /* Handle returns here
+               */
+              val trafo = new ReturnTransformer
+              val tryBody = trafo.transform(rhs0)
+              
+              if (trafo.containsReturn && trafo.containsShift) {
+                unit.error(rhs0.pos, "no returns allowed in body calling shift")
+                tree
+              } else if (trafo.containsReturn) {
+                val key = nonLocalReturnKey(dd.symbol)
+                atPos(rhs0.pos)(nonLocalReturnTry(tryBody, key, dd.symbol))
+              } else
+                tryBody // do not wrap in try-catch
+            }
             val rhs1 = transExpr(rhs, None, getExternalAnswerTypeAnn(tpt.tpe))
 
             debuglog("result "+rhs1)
@@ -215,7 +331,7 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
               unit.error(tree.pos, "always need else part in cps code")
           }
           if (hasAnswerTypeAnn(thenVal.tpe) != hasAnswerTypeAnn(elseVal.tpe)) {
-            unit.error(tree.pos, "then and else parts must both be cps code or neither of them")
+            unit.error(tree.pos, "then and else parts must both be cps code or neither of them: "+thenVal.tpe+", "+elseVal.tpe)
           }
 
           (condStats, updateSynthFlag(treeCopy.If(tree, condVal, thenVal, elseVal)), spc)

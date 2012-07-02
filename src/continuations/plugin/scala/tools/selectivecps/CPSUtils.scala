@@ -69,7 +69,7 @@ trait CPSUtils {
   protected def hasPlusMarker(tpe: Type)    = tpe hasAnnotation MarkerCPSAdaptPlus
   protected def hasSynthMarker(tpe: Type)   = tpe hasAnnotation MarkerCPSSynth
   protected def hasCpsParamTypes(tpe: Type) = tpe hasAnnotation MarkerCPSTypes
-  protected def cpsParamTypes(tpe: Type)    = tpe getAnnotation MarkerCPSTypes map annTypes
+  protected def cpsParamTypes(tpe: Type): Option[(Type, Type)]    = tpe getAnnotation MarkerCPSTypes map annTypes
 
   def filterAttribs(tpe:Type, cls:Symbol) =
     tpe.annotations filter (_ matches cls)
