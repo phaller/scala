@@ -1644,6 +1644,17 @@ public class ForkJoinPool extends AbstractExecutorService {
     }
 
     /**
+     * Callback from ForkJoinWorkerThread constructor to assign a
+     * public name. This must be separate from registerWorker because
+     * it is called during the "super" constructor call in
+     * ForkJoinWorkerThread.
+     */
+    final String nextWorkerName() {
+        return workerNamePrefix.concat
+            (Integer.toString(nextPoolId()));
+    }
+
+    /**
      * Unlocks and signals any thread waiting for plock. Called only
      * when CAS of seq value for unlock fails.
      */
@@ -1682,6 +1693,10 @@ public class ForkJoinPool extends AbstractExecutorService {
     }
 
     //  Registering and deregistering workers
+
+    final void registerWorker(WorkQueue w) {
+        throw new RuntimeException("method unused; must not be invoked");
+    }
 
     /**
      * Callback from ForkJoinWorkerThread to establish and record its
@@ -1932,6 +1947,10 @@ public class ForkJoinPool extends AbstractExecutorService {
     final void incrementActiveCount() {
         long c;
         do {} while (!U.compareAndSwapLong(this, CTL, c = ctl, c + AC_UNIT));
+    }
+
+    final void signalWork() {
+        /* do nothing */
     }
 
     /**
@@ -2309,6 +2328,21 @@ public class ForkJoinPool extends AbstractExecutorService {
      * for blocking. Fails on contention or termination. Otherwise,
      * adds a new thread if no idle workers are available and pool
      * may become starved.
+     *
+     * @param task if non-null, a task being waited for
+     * @param blocker if non-null, a blocker being waited for
+     * @return true if the caller can block, else should recheck and retry
+     */
+    final boolean tryCompensate(ForkJoinTask<?> task, ManagedBlocker blocker) {
+        return tryCompensate();
+    }
+
+    /**
+     * Tries to decrement active count (sometimes implicitly) and
+     * possibly release or create a compensating worker in preparation
+     * for blocking. Fails on contention or termination. Otherwise,
+     * adds a new thread if no idle workers are available and pool
+     * may become starved.
      */
     final boolean tryCompensate() {
         int pc = config & SMASK, e, i, tc; long c;
@@ -2409,8 +2443,22 @@ public class ForkJoinPool extends AbstractExecutorService {
      *
      * @param joiner the joining worker
      * @param task the task
+     * @return task status on exit
      */
-    final void helpJoinOnce(WorkQueue joiner, ForkJoinTask<?> task) {
+    final int helpJoinOnce(WorkQueue joiner, ForkJoinTask<?> task) {
+        helpJoinOnceNew(joiner, task);
+        return task.status;
+    }
+
+    /**
+     * Stripped-down variant of awaitJoin used by timed joins. Tries
+     * to help join only while there is continuous progress. (Caller
+     * will then enter a timed wait.)
+     *
+     * @param joiner the joining worker
+     * @param task the task
+     */
+    private final void helpJoinOnceNew(WorkQueue joiner, ForkJoinTask<?> task) {
         int s;
         if (joiner != null && task != null && (s = task.status) >= 0) {
             ForkJoinTask<?> prevJoin = joiner.currentJoin;
@@ -2509,6 +2557,22 @@ public class ForkJoinPool extends AbstractExecutorService {
                 return t;
             }
         }
+    }
+
+    /**
+     * Returns the approximate (non-atomic) number of idle threads per
+     * active thread to offset steal queue size for method
+     * ForkJoinTask.getSurplusQueuedTaskCount().
+     */
+    final int idlePerActive() {
+        // Approximate at powers of two for small values, saturate past 4
+        int p = getParallelism();
+        int a = p + (int)(ctl >> AC_SHIFT);
+        return (a > (p >>>= 1) ? 0 :
+                a > (p >>>= 1) ? 1 :
+                a > (p >>>= 1) ? 2 :
+                a > (p >>>= 1) ? 4 :
+                8);
     }
 
     /**

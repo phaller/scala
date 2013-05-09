@@ -435,6 +435,13 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
     }
 
     /**
+     * Exception propagation support for tasks with completers.
+     */
+    ForkJoinTask<?> internalGetCompleter() {
+        return null;
+    }
+
+    /**
      * Records exception and possibly propagates.
      *
      * @return status on exit
